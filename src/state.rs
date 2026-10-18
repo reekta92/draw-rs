@@ -252,7 +252,8 @@ impl<'de> Deserialize<'de> for DrawData {
                         data.version
                     )));
                 }
-                if data.version != DRAW_SCHEMA_VERSION {
+                // Empty legacy documents also match the v2 wire shape.
+                if data.version != DRAW_SCHEMA_VERSION && !data.elements.is_empty() {
                     return Err(D::Error::custom(format!(
                         "draw schema version {} uses v2 item records",
                         data.version

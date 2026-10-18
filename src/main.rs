@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 use anyhow::{Context, Result, ensure};
 use crossterm::{
     event::{
@@ -43,6 +44,19 @@ fn restore_terminal() {
     );
 }
 struct TerminalGuard;
+impl TerminalGuard {
+    fn enter() -> Result<Self> {
+        let guard = Self;
+        terminal::enable_raw_mode()?;
+        execute!(
+            io::stdout(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
+        Ok(guard)
+    }
+}
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         restore_terminal();
@@ -183,6 +197,32 @@ fn key_event(
     Ok(DrawEventAction::Continue)
 }
 
+const TOOL_TABS: [(&str, A); 5] = [
+    ("a: Cursor", A::SelectCursorTool),
+    ("d: Draw", A::SelectDrawTool),
+    ("s: Shape", A::ToggleShapeSelector),
+    ("t: Text", A::SelectTextTool),
+    ("e: Erase", A::SelectEraseTool),
+];
+
+fn toolbar_action(column: u16, active_tool: DrawTool) -> Option<A> {
+    let mut start = 7;
+    for (label, action) in TOOL_TABS {
+        let end = start + label.len() as u16;
+        if (start..end).contains(&column) {
+            return Some(
+                if action == A::SelectDrawTool && active_tool == DrawTool::Draw {
+                    A::ToggleColorSelector
+                } else {
+                    action
+                },
+            );
+        }
+        start = end + 3;
+    }
+    None
+}
+
 fn canvas_area(area: Rect) -> (Rect, Rect, Rect) {
     let [header, canvas, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -199,23 +239,17 @@ fn run(mut state: DrawState) -> Result<()> {
         restore_terminal();
         previous(info);
     }));
-    let _guard = TerminalGuard;
-    terminal::enable_raw_mode()?;
-    execute!(
-        io::stdout(),
-        EnterAlternateScreen,
-        EnableMouseCapture,
-        EnableBracketedPaste
-    )?;
+    let _guard = TerminalGuard::enter()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut clipboard = None;
     let mut status = String::new();
+    let toolbar = format!("Draw   {}", TOOL_TABS.map(|(label, _)| label).join("   "));
     let mut help = false;
     loop {
         terminal.draw(|frame| {
             let (header, canvas, footer) = canvas_area(frame.area());
             state.set_canvas_area(canvas);
-            frame.render_widget(Paragraph::new(state.active_mode_message().unwrap_or("Draw   a: Cursor   d: Draw   s: Shape   t: Text   e: Erase")), header);
+            frame.render_widget(Paragraph::new(state.active_mode_message().unwrap_or(&toolbar)), header);
             if help {
                 frame.render_widget(Paragraph::new("a Cursor   d Draw   s Shape   t Text   e Erase\nc Color   G Grid   Ctrl+z Undo   Ctrl+y Redo\nRight-click: context menu; middle/right drag: pan\nScroll: zoom; v: paste element\nEnter: confirm text/selector; Esc: cancel, clear, leave\nq: save and leave; F1/?: help; F1/Esc: close help"), canvas);
             } else { let mouse = state.mouse_pos; draw::draw_view(frame, &mut state, canvas, &ThemeColors::default(), &DrawHints::default(), mouse); }
@@ -249,18 +283,7 @@ fn run(mut state: DrawState) -> Result<()> {
                     && mouse.kind == MouseEventKind::Down(MouseButton::Left)
                     && mouse.row == 0
                 {
-                    let action = match mouse.column {
-                        7..=18 => Some(A::SelectCursorTool),
-                        21..=29 => Some(if state.active_tool == DrawTool::Draw {
-                            A::ToggleColorSelector
-                        } else {
-                            A::SelectDrawTool
-                        }),
-                        32..=41 => Some(A::ToggleShapeSelector),
-                        44..=51 => Some(A::SelectTextTool),
-                        54..=65 => Some(A::SelectEraseTool),
-                        _ => None,
-                    };
+                    let action = toolbar_action(mouse.column, state.active_tool);
                     if let Some(action) = action {
                         draw::apply_action(&mut state, action, &mut clipboard)
                     } else {
@@ -310,6 +333,37 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn toolbar_hit_regions_follow_rendered_labels() {
+        let mut column = 7;
+        for (label, action) in TOOL_TABS {
+            assert_eq!(toolbar_action(column, DrawTool::Cursor), Some(action));
+            assert_eq!(
+                toolbar_action(column + label.len() as u16 - 1, DrawTool::Cursor),
+                Some(action)
+            );
+            column += label.len() as u16;
+            assert_eq!(toolbar_action(column, DrawTool::Cursor), None);
+            column += 3;
+        }
+        assert_eq!(
+            toolbar_action(19, DrawTool::Draw),
+            Some(A::ToggleColorSelector)
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a terminal; exercised through the PTY smoke check"]
+    fn terminal_guard_restores_after_panic() {
+        let result = std::panic::catch_unwind(|| {
+            let _guard = TerminalGuard::enter().expect("terminal setup");
+            assert!(terminal::is_raw_mode_enabled().expect("raw mode"));
+            panic!("terminal restoration probe");
+        });
+        assert!(result.is_err());
+        assert!(!terminal::is_raw_mode_enabled().expect("restored raw mode"));
+    }
+
     #[test]
     fn validates_arguments_and_loads_before_terminal_setup() {
         for args in [vec![], vec!["a.md"], vec!["a.draw", "b.draw"]] {

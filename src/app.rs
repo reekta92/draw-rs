@@ -221,6 +221,7 @@ impl DrawState {
             && self.preview_element.is_none()
             && self.erase_start_data.is_none()
             && !self.is_panning
+            && self.last_mouse_pos.is_none()
             && self.right_mouse_screen.is_none()
             && !self.mouse_selection.active
     }

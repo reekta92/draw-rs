@@ -933,8 +933,8 @@ fn panning(x: u16, y: u16, app: &mut DrawState) {
     if let Some((lx, ly)) = app.last_mouse_pos {
         let area = app.last_area;
         if area.width > 0 && area.height > 0 {
-            let dx = (lx as f64 - x as f64) * 200.0 / (area.width as f64 * app.viewport.zoom);
-            let dy = (y as f64 - ly as f64) * 200.0 / (area.height as f64 * app.viewport.zoom);
+            let projection = crate::geometry::CanvasProjection::new(area, &app.viewport);
+            let (dx, dy) = projection.pan_delta((lx, ly), (x, y));
             app.viewport.x += dx;
             app.viewport.y += dy;
         }
@@ -1046,18 +1046,25 @@ pub fn apply_action(
             app.hovered = None;
         }
         DrawAction::MenuUp | DrawAction::MenuDown | DrawAction::MenuSelect => {}
-        DrawAction::ShapeSelectorUp => cycle_shape_type(app, -1),
-        DrawAction::ShapeSelectorDown => cycle_shape_type(app, 1),
-        DrawAction::ShapeSelectorConfirm => app.set_active_tool(DrawTool::Shape),
+        DrawAction::ShapeSelectorUp if app.show_shape_selector => cycle_shape_type(app, -1),
+        DrawAction::ShapeSelectorDown if app.show_shape_selector => cycle_shape_type(app, 1),
+        DrawAction::ShapeSelectorConfirm if app.show_shape_selector => {
+            app.set_active_tool(DrawTool::Shape)
+        }
         DrawAction::ShapeSelectorCancel => app.show_shape_selector = false,
-        DrawAction::ColorSelectorUp => cycle_color(app, -1),
-        DrawAction::ColorSelectorDown => cycle_color(app, 1),
+        DrawAction::ColorSelectorUp if app.show_color_selector => cycle_color(app, -1),
+        DrawAction::ColorSelectorDown if app.show_color_selector => cycle_color(app, 1),
         DrawAction::ColorSelectorConfirm | DrawAction::ColorSelectorCancel => {
             app.show_color_selector = false
         }
+        DrawAction::ShapeSelectorUp
+        | DrawAction::ShapeSelectorDown
+        | DrawAction::ShapeSelectorConfirm
+        | DrawAction::ColorSelectorUp
+        | DrawAction::ColorSelectorDown => {}
         DrawAction::TextEditorCancel => {
             app.text_editor = None;
-            app.mouse_selection = Default::default();
+            app.mouse_selection = crate::ui::MouseTextSelection::default();
         }
         DrawAction::TextEditorConfirm => {
             if let Some((id, editor)) = app.text_editor.take() {
@@ -1067,7 +1074,7 @@ pub fn apply_action(
                 {
                     text.content = editor.lines()[0].clone();
                 }
-                app.mouse_selection = Default::default();
+                app.mouse_selection = crate::ui::MouseTextSelection::default();
                 app.commit_data_change(previous)?;
             }
         }

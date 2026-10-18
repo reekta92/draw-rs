@@ -22,10 +22,12 @@ impl CanvasMenuItemSpec {
             color_hint: None,
         }
     }
+    #[must_use]
     pub const fn shortcut(mut self, c: char) -> Self {
         self.shortcut = Some(c);
         self
     }
+    #[must_use]
     pub const fn color(mut self, c: Color) -> Self {
         self.color_hint = Some(c);
         self

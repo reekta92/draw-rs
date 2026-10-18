@@ -485,6 +485,51 @@ fn ellipse_distance_from_angle(
     (point.0 - edge.0).hypot(point.1 - edge.1)
 }
 
+/// The shared viewport projection for rendering, pointer input and grid placement.
+pub(crate) struct CanvasProjection {
+    area: ratatui::layout::Rect,
+    center: (f64, f64),
+    half: f64,
+    pub x_bounds: [f64; 2],
+    pub y_bounds: [f64; 2],
+    pub cols_per_world_x: f64,
+    pub rows_per_world_y: f64,
+}
+impl CanvasProjection {
+    pub fn new(area: ratatui::layout::Rect, viewport: &Viewport) -> Self {
+        let half = 100.0 / viewport.zoom;
+        Self {
+            area,
+            center: (viewport.x, viewport.y),
+            half,
+            x_bounds: [viewport.x - half, viewport.x + half],
+            y_bounds: [viewport.y - half, viewport.y + half],
+            cols_per_world_x: area.width.saturating_sub(1) as f64 / (2.0 * half),
+            rows_per_world_y: -(area.height.saturating_sub(1) as f64) / (2.0 * half),
+        }
+    }
+    pub fn pan_delta(&self, from: (u16, u16), to: (u16, u16)) -> (f64, f64) {
+        if self.area.is_empty() {
+            return (0.0, 0.0);
+        }
+        (
+            (from.0 as f64 - to.0 as f64) * (2.0 * self.half) / self.area.width as f64,
+            (to.1 as f64 - from.1 as f64) * (2.0 * self.half) / self.area.height as f64,
+        )
+    }
+    pub fn world(&self, x: u16, y: u16) -> (f64, f64) {
+        if self.area.is_empty() {
+            return self.center;
+        }
+        let col = (x as f64 - self.area.x as f64 + 0.5) / self.area.width as f64;
+        let row = (y as f64 - self.area.y as f64 + 0.5) / self.area.height as f64;
+        (
+            self.center.0 + (2.0 * col - 1.0) * self.half,
+            self.center.1 + (1.0 - 2.0 * row) * self.half,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,41 +723,5 @@ mod tests {
             selection_handle_points(&rectangle, &rectangle.transform, &viewport),
             Some(((25.0, 29.0), (35.0, -15.0)))
         );
-    }
-}
-
-/// The shared viewport projection for rendering, pointer input and grid placement.
-pub(crate) struct CanvasProjection {
-    area: ratatui::layout::Rect,
-    center: (f64, f64),
-    half: f64,
-    pub x_bounds: [f64; 2],
-    pub y_bounds: [f64; 2],
-    pub cols_per_world_x: f64,
-    pub rows_per_world_y: f64,
-}
-impl CanvasProjection {
-    pub fn new(area: ratatui::layout::Rect, viewport: &Viewport) -> Self {
-        let half = 100.0 / viewport.zoom;
-        Self {
-            area,
-            center: (viewport.x, viewport.y),
-            half,
-            x_bounds: [viewport.x - half, viewport.x + half],
-            y_bounds: [viewport.y - half, viewport.y + half],
-            cols_per_world_x: area.width.saturating_sub(1) as f64 / (2.0 * half),
-            rows_per_world_y: -(area.height.saturating_sub(1) as f64) / (2.0 * half),
-        }
-    }
-    pub fn world(&self, x: u16, y: u16) -> (f64, f64) {
-        if self.area.is_empty() {
-            return self.center;
-        }
-        let col = (x as f64 - self.area.x as f64 + 0.5) / self.area.width as f64;
-        let row = (y as f64 - self.area.y as f64 + 0.5) / self.area.height as f64;
-        (
-            self.center.0 + (2.0 * col - 1.0) * self.half,
-            self.center.1 + (1.0 - 2.0 * row) * self.half,
-        )
     }
 }

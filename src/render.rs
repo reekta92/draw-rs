@@ -74,7 +74,7 @@ pub fn draw_view(
     );
 
     if let Some(menu) = &app.context_menu {
-        crate::ui::render_canvas_context_menu(frame, canvas_area, menu, &theme, mouse_pos);
+        crate::ui::render_canvas_context_menu(frame, canvas_area, menu, theme, mouse_pos);
     }
 
     if app.show_shape_selector {
@@ -615,29 +615,6 @@ fn draw_shape_colored(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn hover_and_selection_blend_item_color_toward_accent() {
-        let item = DrawItem::new(DrawElement::Stroke(Stroke {
-            points: vec![(0.0, 0.0)],
-            color: (100, 150, 200),
-        }));
-        let accent = Color::Rgb(200, 100, 0);
-
-        assert_eq!(
-            blended_item_color(&item, accent, 30),
-            Color::Rgb(130, 135, 140)
-        );
-        assert_eq!(
-            blended_item_color(&item, accent, 45),
-            Color::Rgb(145, 127, 110)
-        );
-    }
-}
-
 /// Colors supplied by the embedding host; `None` preserves terminal transparency.
 #[derive(Clone, Copy, Debug)]
 pub struct ThemeColors {
@@ -694,5 +671,28 @@ impl Default for DrawHints {
             text_confirm: "Enter".into(),
             text_cancel: "Esc".into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hover_and_selection_blend_item_color_toward_accent() {
+        let item = DrawItem::new(DrawElement::Stroke(Stroke {
+            points: vec![(0.0, 0.0)],
+            color: (100, 150, 200),
+        }));
+        let accent = Color::Rgb(200, 100, 0);
+
+        assert_eq!(
+            blended_item_color(&item, accent, 30),
+            Color::Rgb(130, 135, 140)
+        );
+        assert_eq!(
+            blended_item_color(&item, accent, 45),
+            Color::Rgb(145, 127, 110)
+        );
     }
 }
