@@ -107,8 +107,8 @@ pub struct DrawItem {
 impl DrawItem {
     #[must_use]
     pub fn new(element: DrawElement) -> Self {
-        let (pivot_x, pivot_y) = crate::geometry::base_bounds(&element)
-            .map_or((0.0, 0.0), |bounds| bounds.center());
+        let (pivot_x, pivot_y) =
+            crate::geometry::base_bounds(&element).map_or((0.0, 0.0), |bounds| bounds.center());
         Self {
             id: DrawItemId::new(),
             transform: DrawTransform::identity(pivot_x, pivot_y),
