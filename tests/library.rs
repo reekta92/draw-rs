@@ -253,19 +253,8 @@ fn nonzero_tiny_and_resized_canvases_keep_popups_inside_and_snapshots_clean() {
 }
 
 #[test]
-fn binary_uses_bare_relative_paths_and_keeps_creation_after_terminal_failure() {
+fn binary_load_errors_precede_terminal_setup() {
     let dir = tempfile::tempdir().unwrap();
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_draw"))
-        .arg("bare.draw")
-        .current_dir(dir.path())
-        .stdin(std::process::Stdio::null())
-        .output()
-        .unwrap();
-    assert!(!result.status.success());
-    assert_eq!(
-        DrawState::load(&dir.path().join("bare.draw")).unwrap().data,
-        DrawData::default()
-    );
     std::fs::write(dir.path().join("bad.draw"), "invalid").unwrap();
     let result = std::process::Command::new(env!("CARGO_BIN_EXE_draw"))
         .arg("bad.draw")
@@ -303,4 +292,23 @@ fn selector_actions_only_change_active_selectors() {
     draw::apply_action(&mut state, DrawAction::ShapeSelectorConfirm, &mut None).unwrap();
     assert_eq!(state.active_tool, DrawTool::Shape);
     assert!(!state.show_shape_selector);
+}
+
+#[test]
+fn creation_accepts_a_bare_relative_filename_without_changing_working_directory() {
+    let cleanup = tempfile::NamedTempFile::new_in(".")
+        .unwrap()
+        .into_temp_path();
+    std::fs::remove_file(&cleanup).unwrap();
+    let relative = std::path::Path::new(cleanup.file_name().unwrap());
+    let state = DrawState::create(relative).unwrap();
+    assert_eq!(
+        state.path().unwrap(),
+        std::env::current_dir()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .join(relative)
+    );
+    assert_eq!(DrawState::load(relative).unwrap().data, DrawData::default());
 }
