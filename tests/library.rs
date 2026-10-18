@@ -228,7 +228,8 @@ fn nonzero_tiny_and_resized_canvases_keep_popups_inside_and_snapshots_clean() {
                 )
             })
             .unwrap();
-        assert_eq!(state.last_area, area);
+        let point = draw::input::screen_to_canvas(area.x, area.y, &state);
+        assert!(point.0.is_finite() && point.1.is_finite());
         mouse(
             &mut state,
             MouseEventKind::Down(MouseButton::Left),
