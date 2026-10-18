@@ -111,11 +111,7 @@ fn action(state: &DrawState, key: KeyEvent) -> Option<A> {
             return selected;
         }
     }
-    if key.code == Char('v')
-        && !key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
-    {
+    if plain && key.code == Char('v') {
         return Some(A::Paste);
     }
     if state.context_menu.is_some() {
@@ -353,6 +349,13 @@ mod tests {
     #[test]
     fn default_keys_preserve_modifier_rules() {
         let mut state = DrawState::new();
+        assert_eq!(
+            action(
+                &state,
+                KeyEvent::new(KeyCode::Char('v'), KeyModifiers::SHIFT)
+            ),
+            None
+        );
         for modifiers in [KeyModifiers::ALT, KeyModifiers::SUPER, KeyModifiers::SHIFT] {
             assert_eq!(
                 action(&state, KeyEvent::new(KeyCode::Char('q'), modifiers)),
