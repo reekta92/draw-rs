@@ -65,14 +65,24 @@ impl Drop for TerminalGuard {
 
 fn action(state: &DrawState, key: KeyEvent) -> Option<A> {
     use KeyCode::{Char, Down, Enter, Esc, Up};
+    if key
+        .modifiers
+        .intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+    {
+        return None;
+    }
+    let plain = key.modifiers.is_empty();
     if state.text_editor.is_some() {
+        if !plain {
+            return None;
+        }
         return match key.code {
             Enter => Some(A::TextEditorConfirm),
             Esc => Some(A::TextEditorCancel),
             _ => None,
         };
     }
-    if state.show_shape_selector || state.show_color_selector {
+    if plain && (state.show_shape_selector || state.show_color_selector) {
         let shape = state.show_shape_selector;
         let selected = match key.code {
             Esc | Char('q') => Some(if shape {
@@ -109,6 +119,9 @@ fn action(state: &DrawState, key: KeyEvent) -> Option<A> {
         return Some(A::Paste);
     }
     if state.context_menu.is_some() {
+        if !plain {
+            return None;
+        }
         return match key.code {
             Esc => Some(A::MenuClose),
             Enter => Some(A::MenuSelect),
@@ -119,11 +132,15 @@ fn action(state: &DrawState, key: KeyEvent) -> Option<A> {
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         return match key.code {
+            Char('Z') => Some(A::Redo),
             Char('z') if key.modifiers.contains(KeyModifiers::SHIFT) => Some(A::Redo),
             Char('z') => Some(A::Undo),
             Char('y') => Some(A::Redo),
             _ => None,
         };
+    }
+    if !(plain || key.modifiers == KeyModifiers::SHIFT && key.code == Char('G')) {
+        return None;
     }
     match key.code {
         Esc => Some(A::MenuClose),
@@ -182,7 +199,7 @@ fn key_event(
         draw::handle_menu_shortcut(key, state, clipboard)?;
         return Ok(DrawEventAction::Continue);
     }
-    if key.code == KeyCode::Esc {
+    if key.code == KeyCode::Esc && key.modifiers.is_empty() {
         if draw::cancel_interaction_or_selection(state) {
             return Ok(DrawEventAction::Continue);
         }
@@ -333,6 +350,37 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn default_keys_preserve_modifier_rules() {
+        let mut state = DrawState::new();
+        for modifiers in [KeyModifiers::ALT, KeyModifiers::SUPER, KeyModifiers::SHIFT] {
+            assert_eq!(
+                action(&state, KeyEvent::new(KeyCode::Char('q'), modifiers)),
+                None
+            );
+        }
+        assert_eq!(
+            action(
+                &state,
+                KeyEvent::new(
+                    KeyCode::Char('z'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT
+                )
+            ),
+            Some(A::Redo)
+        );
+        let id = draw::DrawItemId::new();
+        state.text_editor = Some((id, ratatui_textarea::TextArea::default()));
+        assert_eq!(
+            action(&state, KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT)),
+            None
+        );
+        assert_eq!(
+            action(&state, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Some(A::TextEditorConfirm)
+        );
+    }
+
     #[test]
     fn toolbar_hit_regions_follow_rendered_labels() {
         let mut column = 7;
