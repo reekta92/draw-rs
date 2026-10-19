@@ -253,6 +253,22 @@ fn nonzero_tiny_and_resized_canvases_keep_popups_inside_and_snapshots_clean() {
 }
 
 #[test]
+fn binary_help_succeeds_without_a_terminal_or_creating_files() {
+    let dir = tempfile::tempdir().unwrap();
+    for arg in ["-h", "--help"] {
+        let result = std::process::Command::new(env!("CARGO_BIN_EXE_draw"))
+            .arg(arg)
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert!(result.status.success());
+        assert_eq!(result.stdout, b"Usage: draw <path.draw>\n");
+        assert_eq!(result.stderr, b"");
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn binary_load_errors_precede_terminal_setup() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("bad.draw"), "invalid").unwrap();

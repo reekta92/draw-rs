@@ -339,7 +339,16 @@ fn run(mut state: DrawState) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let path = requested_path(std::env::args_os().skip(1))?;
+    let mut args = std::env::args_os().skip(1).peekable();
+    if args.len() == 1
+        && args
+            .peek()
+            .is_some_and(|arg| arg == "-h" || arg == "--help")
+    {
+        println!("Usage: draw <path.draw>");
+        return Ok(());
+    }
+    let path = requested_path(args)?;
     run(open(&path)?)
 }
 

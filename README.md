@@ -13,6 +13,7 @@ unsupported legacy images, as clin already did.
 ```sh
 cargo install --git https://github.com/reekta92/draw-rs --locked
 draw sketch.draw
+draw --help
 ```
 
 The parent directory must already exist. Exactly one `.draw` path is required.
@@ -81,6 +82,12 @@ interaction state or unsaved changes following a failed save.
 it excludes grid, selection, handles, and unfinished interactions.
 
 ## Development
+
+CI, releases, and beta issue labeling call the reusable workflows in
+[reekta92/.github](https://github.com/reekta92/.github). Releases use the `draw`
+binary and require the `CARGO_REGISTRY_TOKEN` repository secret for crates.io.
+Installer builds and AUR publishing default off because this repo has no package
+metadata or desktop assets.
 
 Rust 1.90.0 or later, edition 2024. Dependencies use Ratatui 0.30, Crossterm 0.29
 and ratatui-textarea 0.9, matching clin. No clin, graf or pinstar dependency.
