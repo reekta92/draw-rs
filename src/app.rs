@@ -172,10 +172,14 @@ pub fn draw_color_menu_specs() -> Vec<crate::ui::CanvasMenuItemSpec> {
 use ratatui::layout::Rect;
 use ratatui_textarea::TextArea;
 
+type SaveHandler = Box<dyn Fn(&str, &str) -> anyhow::Result<()> + Send + Sync>;
+
 pub struct DrawState {
     pub data: DrawData,
     pub viewport: Viewport,
     path: Option<std::path::PathBuf>,
+    source: std::sync::Mutex<String>,
+    save_handler: Option<SaveHandler>,
 
     pub active_tool: crate::state::DrawTool,
     pub selection: crate::ui::CanvasSelection<DrawItemId>,
@@ -230,6 +234,8 @@ impl DrawState {
             data: DrawData::default(),
             viewport: Viewport::default(),
             path: None,
+            source: std::sync::Mutex::new(String::new()),
+            save_handler: None,
 
             active_tool: crate::state::DrawTool::Cursor,
             selection: crate::ui::CanvasSelection::new(),
@@ -460,6 +466,7 @@ impl DrawState {
         Ok(Self {
             data: serde_json::from_str(&content)?,
             path: Some(path),
+            source: std::sync::Mutex::new(content),
             ..Self::new()
         })
     }
@@ -478,11 +485,22 @@ impl DrawState {
             path: Some(path),
             ..Self::new()
         };
-        crate::fsutil::atomic_create(
-            state.path().expect("creation has a path"),
-            &state.serialized()?,
-        )?;
+        let bytes = state.serialized()?;
+        crate::fsutil::atomic_create(state.path().expect("creation has a path"), &bytes)?;
+        *state
+            .source
+            .lock()
+            .map_err(|_| anyhow::anyhow!("drawing source lock poisoned"))? =
+            String::from_utf8(bytes)?;
         Ok(state)
+    }
+
+    /// Let a host validate the loaded source and persist every eager save.
+    pub fn set_save_handler(
+        &mut self,
+        handler: impl Fn(&str, &str) -> anyhow::Result<()> + Send + Sync + 'static,
+    ) {
+        self.save_handler = Some(Box::new(handler));
     }
 
     fn serialized(&self) -> anyhow::Result<Vec<u8>> {
@@ -507,7 +525,18 @@ impl DrawState {
 
     pub fn save(&self) -> anyhow::Result<()> {
         if let Some(path) = self.path() {
-            crate::fsutil::atomic_write(path, &self.serialized()?)?;
+            let bytes = self.serialized()?;
+            let content = std::str::from_utf8(&bytes)?;
+            let mut source = self
+                .source
+                .lock()
+                .map_err(|_| anyhow::anyhow!("drawing source lock poisoned"))?;
+            if let Some(handler) = &self.save_handler {
+                handler(&source, content)?;
+            } else {
+                crate::fsutil::atomic_write(path, &bytes)?;
+            }
+            *source = content.to_owned();
         } else {
             anyhow::ensure!(
                 self.data == DrawData::default(),
@@ -527,6 +556,37 @@ impl Default for DrawState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_saves_receive_original_source_and_keep_it_after_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("host.draw");
+        let mut state = DrawState::create(&path).unwrap();
+        let original = std::fs::read_to_string(&path).unwrap();
+        let target = path.clone();
+        state.set_save_handler(move |before, after| {
+            anyhow::ensure!(
+                std::fs::read_to_string(&target)? == before,
+                "external change"
+            );
+            crate::fsutil::atomic_write(&target, after.as_bytes())
+        });
+        state.data.width = 2048.0;
+        state.save().unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert_ne!(saved, original);
+        std::fs::write(&path, &original).unwrap();
+        assert!(
+            state
+                .save()
+                .unwrap_err()
+                .to_string()
+                .contains("external change")
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        std::fs::write(&path, saved).unwrap();
+        state.save().unwrap();
+    }
 
     fn test_state() -> (tempfile::TempDir, DrawState) {
         let temp = tempfile::tempdir().unwrap();
