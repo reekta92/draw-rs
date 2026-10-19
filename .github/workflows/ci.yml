@@ -4,9 +4,9 @@ on: [push, pull_request]
 
 jobs:
   ci:
-    uses: reekta92/.github/.github/workflows/ci.yml@main
+    uses: reekta92/.github/.github/workflows/ci.yml@746b77673ec0db7978ee464ba012cb601fcec4ef
     permissions:
-      contents: write
+      contents: read
 
   msrv-all-targets:
     runs-on: ubuntu-latest
