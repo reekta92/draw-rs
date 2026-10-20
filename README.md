@@ -84,8 +84,8 @@ it excludes grid, selection, handles, and unfinished interactions.
 ## Development
 
 CI, releases, and beta issue labeling call the reusable workflows in
-[reekta92/.github](https://github.com/reekta92/.github). Releases use the `draw`
-crate on crates.io and require the `CARGO_REGISTRY_TOKEN` repository secret.
+[reekta92/.github](https://github.com/reekta92/.github). Releases publish the
+`draw-rs` crate on crates.io and require the `CARGO_REGISTRY_TOKEN` repository secret.
 Install the standalone binary with `cargo install draw-rs`. Release packaging
 is owned by applications embedding the engine.
 
@@ -103,3 +103,6 @@ cargo +1.90.0 check --locked --all-targets
 From a terminal, the optional unwind check is
 `cargo test --bin draw terminal_guard_restores_after_panic -- --ignored`.
 It verifies raw-mode and screen restoration during a caught panic.
+
+See [the shared development process](https://github.com/reekta92/clin-rs/blob/main/docs/DEVELOPMENT.md)
+for coordinated engine changes and release acceptance.
