@@ -84,10 +84,10 @@ it excludes grid, selection, handles, and unfinished interactions.
 ## Development
 
 CI, releases, and beta issue labeling call the reusable workflows in
-[reekta92/.github](https://github.com/reekta92/.github). Releases use the `draw`
-binary and require the `CARGO_REGISTRY_TOKEN` repository secret for crates.io.
-Installer builds and AUR publishing default off because this repo has no package
-metadata or desktop assets.
+[reekta92/.github](https://github.com/reekta92/.github). Releases publish the
+`draw-rs` crate on crates.io and require the `CARGO_REGISTRY_TOKEN` repository secret.
+Install the standalone binary with `cargo install draw-rs`. Release packaging
+is owned by applications embedding the engine.
 
 Rust 1.90.0 or later, edition 2024. Dependencies use Ratatui 0.30, Crossterm 0.29
 and ratatui-textarea 0.9, matching clin. No clin, graf or pinstar dependency.
@@ -103,3 +103,6 @@ cargo +1.90.0 check --locked --all-targets
 From a terminal, the optional unwind check is
 `cargo test --bin draw terminal_guard_restores_after_panic -- --ignored`.
 It verifies raw-mode and screen restoration during a caught panic.
+
+See [the shared development process](https://github.com/reekta92/clin-rs/blob/main/docs/DEVELOPMENT.md)
+for coordinated engine changes and release acceptance.
