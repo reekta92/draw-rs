@@ -86,8 +86,14 @@ it excludes grid, selection, handles, and unfinished interactions.
 CI, releases, and beta issue labeling call the reusable workflows in
 [reekta92/.github](https://github.com/reekta92/.github). Releases publish the
 `draw-rs` crate on crates.io and require the `CARGO_REGISTRY_TOKEN` repository secret.
-Install the standalone binary with `cargo install draw-rs`. Release packaging
-is owned by applications embedding the engine.
+Install the standalone binary with `cargo install draw-rs --locked`.
+[GitHub Releases](https://github.com/reekta92/draw-rs/releases) include installation
+instructions, Linux x86_64 and ARM64 CLI archives
+(`draw-rs-<version>-<target>.tar.xz` / `.tar.gz`), the Cargo source archive, and
+`SHA256SUMS`. Binary archives contain `draw`, `LICENSE`, and `README.md` at the
+root; Linux builds require glibc 2.35 or newer. AUR maintainers can use the
+versioned archives and hashes in their PKGBUILDs. The GitHub release is published
+after crates.io succeeds.
 
 Rust 1.90.0 or later, edition 2024. Dependencies use Ratatui 0.30, Crossterm 0.29
 and ratatui-textarea 0.9, matching clin. No clin, graf or pinstar dependency.
