@@ -11,7 +11,7 @@ unsupported legacy images, as clin already did.
 ## Standalone application
 
 ```sh
-cargo install --git https://github.com/reekta92/draw-rs --locked
+cargo install draw-rs --locked
 draw sketch.draw
 draw --help
 ```
