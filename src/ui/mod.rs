@@ -11,6 +11,7 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Color, Style},
+    text::{Line, Span},
     widgets::{Clear, Paragraph},
 };
 use ratatui_textarea::{CursorMove, TextArea};
@@ -81,20 +82,20 @@ fn move_textarea_cursor_to_mouse(
 }
 
 pub(crate) fn selector_rect(area: Rect, width: u16, count: usize) -> Rect {
-    let width = width.min(area.width);
+    let width = width.max(30).min(area.width);
     Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y,
         width,
-        (count as u16).min(area.height),
+        (count as u16).min(area.height.saturating_sub(1)),
     )
 }
 pub(crate) fn editor_rect(area: Rect) -> Rect {
-    let width = 60.min(area.width);
-    let height = 5.min(area.height);
+    let width = (area.width / 2).clamp(30.min(area.width), 80.min(area.width));
+    let height = 4.min(area.height.saturating_sub(1));
     Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
-        area.y + area.height.saturating_sub(height) / 2,
+        area.y + area.height.saturating_sub(height + 1) / 2,
         width,
         height,
     )
@@ -107,7 +108,17 @@ pub(crate) fn draw_selector(
     mouse: Option<(u16, u16)>,
 ) {
     frame.render_widget(Clear, rect);
-    for (i, (name, selected, color)) in items.iter().take(rect.height as usize).enumerate() {
+    let selected_index = items
+        .iter()
+        .position(|(_, selected, _)| *selected)
+        .unwrap_or(0);
+    let offset = selected_index.saturating_sub(rect.height.saturating_sub(1) as usize);
+    for (i, (name, selected, color)) in items
+        .iter()
+        .skip(offset)
+        .take(rect.height as usize)
+        .enumerate()
+    {
         let row = Rect::new(rect.x, rect.y + i as u16, rect.width, 1);
         let style = if *selected {
             theme.selected
@@ -116,15 +127,15 @@ pub(crate) fn draw_selector(
         } else {
             theme.preview_bg_style()
         };
-        let label = if color.is_some() {
-            format!(" ■ {name}")
+        let label = if let Some(color) = color {
+            Line::from(vec![
+                Span::styled(" ■ ", style.fg(*color)),
+                Span::styled(*name, style),
+            ])
         } else {
-            format!("  {name}")
+            Line::styled(format!("  {name}"), style)
         };
-        frame.render_widget(
-            Paragraph::new(label).style(color.map_or(style, |c| style.fg(c))),
-            row,
-        );
+        frame.render_widget(Paragraph::new(label).style(style), row);
     }
 }
 pub(crate) fn draw_hints(
@@ -137,9 +148,38 @@ pub(crate) fn draw_hints(
     if !area.is_empty() {
         let row = Rect::new(area.x, area.bottom() - 1, area.width, 1);
         frame.render_widget(
-            Paragraph::new(format!("{confirm}: confirm  {cancel}: cancel"))
-                .style(Style::default().fg(theme.muted)),
+            Paragraph::new(Line::from(vec![
+                Span::styled(confirm, Style::default().fg(theme.accent)),
+                Span::styled(" confirm · ", Style::default().fg(theme.muted)),
+                Span::styled(cancel, Style::default().fg(theme.accent)),
+                Span::styled(" cancel", Style::default().fg(theme.muted)),
+            ]))
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(theme.preview_bg_style()),
             row,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn color_selector_keeps_selected_label_readable() {
+        let theme = ThemeColors::default();
+        let mut terminal = Terminal::new(TestBackend::new(30, 3)).unwrap();
+        let items = [
+            ("Red", false, Some(Color::Red)),
+            ("Green", true, Some(Color::Green)),
+        ];
+        terminal
+            .draw(|frame| draw_selector(frame, Rect::new(0, 0, 30, 2), &items, &theme, None))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(3, 1)].fg, theme.selected.fg.unwrap());
+        assert_eq!(buffer[(1, 1)].fg, Color::Green);
+        assert_eq!(buffer[(3, 1)].bg, theme.selected.bg.unwrap());
     }
 }

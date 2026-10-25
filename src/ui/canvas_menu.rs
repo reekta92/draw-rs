@@ -88,10 +88,15 @@ impl CanvasContextMenu {
         );
         Rect::new(x, y, width, height)
     }
+    pub fn visible_offset(&self, height: u16) -> usize {
+        self.selected
+            .saturating_sub(height.saturating_sub(1) as usize)
+    }
+
     pub fn row_at(&self, rect: Rect, col: u16, row: u16) -> Option<usize> {
         if col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
         {
-            let idx = (row - rect.y) as usize;
+            let idx = self.visible_offset(rect.height) + (row - rect.y) as usize;
             (idx < self.items.len()).then_some(idx)
         } else {
             None
@@ -112,6 +117,8 @@ pub fn render_canvas_context_menu(
         .items
         .iter()
         .enumerate()
+        .skip(menu.visible_offset(rect.height))
+        .take(rect.height as usize)
         .map(|(i, spec)| {
             let is_selected = i == menu.selected;
             let base = if is_selected {
@@ -127,7 +134,7 @@ pub fn render_canvas_context_menu(
             let label = format!("{}  ", spec.label);
             spans.push(Span::styled(label, base));
             // dynamic padding so shortcut right-aligns.
-            let content_len = spec.label.chars().count()
+            let content_len = ratatui::text::Line::from(spec.label).width()
                 + 4
                 + if spec.color_hint.is_some() { 2 } else { 0 }
                 + spec.shortcut.map_or(0, |_| 2);
@@ -136,7 +143,14 @@ pub fn render_canvas_context_menu(
                 spans.push(Span::styled(" ".repeat(pad), base));
             }
             if let Some(c) = spec.shortcut {
-                spans.push(Span::styled(format!("{c} "), base.fg(theme.muted)));
+                spans.push(Span::styled(
+                    format!("{c} "),
+                    if is_selected {
+                        base
+                    } else {
+                        base.fg(theme.muted)
+                    },
+                ));
             }
             ListItem::new(Line::from(spans))
         })
@@ -148,7 +162,9 @@ pub fn render_canvas_context_menu(
     );
     frame.render_widget(list, rect);
     if let Some((col, row)) = mouse_pos
-        && menu.row_at(rect, col, row).is_some()
+        && menu
+            .row_at(rect, col, row)
+            .is_some_and(|index| index != menu.selected)
     {
         let hover = Rect::new(rect.x, row, rect.width, 1);
         frame.buffer_mut().set_style(hover, theme.hover);
@@ -239,5 +255,21 @@ mod tests {
             .unwrap();
         assert_eq!(shortcut.style().bg, theme.popup_bg.or(theme.bg));
         assert_eq!(shortcut.style().fg, Some(theme.muted));
+    }
+    #[test]
+    fn overflowing_menu_keeps_selection_visible_and_hit_testing_aligned() {
+        let area = ratatui::layout::Rect::new(5, 4, 12, 3);
+        let mut menu = CanvasContextMenu::new(
+            0,
+            0,
+            (0..20)
+                .map(|_| CanvasMenuItemSpec::new("界面 label"))
+                .collect(),
+        );
+        menu.selected = 19;
+        let rect = menu.rect(area);
+        assert_eq!(rect, area);
+        assert_eq!(menu.row_at(rect, rect.x, rect.bottom() - 1), Some(19));
+        assert_eq!(menu.visible_offset(rect.height), 17);
     }
 }
