@@ -146,10 +146,15 @@ fn handle_mouse(
         ];
         let dropdown_rect = crate::ui::selector_rect(area, 11, shapes.len());
         let dropdown_y = dropdown_rect.y;
+        let offset = shapes
+            .iter()
+            .position(|shape| *shape == app.active_shape_type)
+            .unwrap_or(0)
+            .saturating_sub(dropdown_rect.height.saturating_sub(1) as usize);
 
         if ev.kind == MouseEventKind::Down(MouseButton::Left) {
             if dropdown_rect.contains((ev.column, ev.row).into()) {
-                let row_rel = (ev.row - dropdown_y) as usize;
+                let row_rel = offset + (ev.row - dropdown_y) as usize;
                 if let Some(&shape) = shapes.get(row_rel) {
                     app.active_shape_type = shape;
                     app.set_active_tool(DrawTool::Shape);
@@ -168,10 +173,22 @@ fn handle_mouse(
         let colors = crate::COLOR_PICKER_PALETTE;
         let dropdown_rect = crate::ui::selector_rect(area, 14, colors.len());
         let dropdown_y = dropdown_rect.y;
+        let offset = colors
+            .iter()
+            .position(|(_, _, color)| {
+                *color
+                    == ratatui::style::Color::Rgb(
+                        app.active_color.0,
+                        app.active_color.1,
+                        app.active_color.2,
+                    )
+            })
+            .unwrap_or(0)
+            .saturating_sub(dropdown_rect.height.saturating_sub(1) as usize);
 
         if ev.kind == MouseEventKind::Down(MouseButton::Left) {
             if dropdown_rect.contains((ev.column, ev.row).into()) {
-                let row_rel = (ev.row - dropdown_y) as usize;
+                let row_rel = offset + (ev.row - dropdown_y) as usize;
                 if let Some(&(_, _, c)) = colors.get(row_rel) {
                     if let ratatui::style::Color::Rgb(r, g, b) = c {
                         app.active_color = (r, g, b);
