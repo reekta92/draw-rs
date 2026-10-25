@@ -134,7 +134,7 @@ pub fn render_canvas_context_menu(
             let label = format!("{}  ", spec.label);
             spans.push(Span::styled(label, base));
             // dynamic padding so shortcut right-aligns.
-            let content_len = spec.label.chars().count()
+            let content_len = ratatui::text::Line::from(spec.label).width()
                 + 4
                 + if spec.color_hint.is_some() { 2 } else { 0 }
                 + spec.shortcut.map_or(0, |_| 2);
@@ -143,7 +143,14 @@ pub fn render_canvas_context_menu(
                 spans.push(Span::styled(" ".repeat(pad), base));
             }
             if let Some(c) = spec.shortcut {
-                spans.push(Span::styled(format!("{c} "), base.fg(theme.muted)));
+                spans.push(Span::styled(
+                    format!("{c} "),
+                    if is_selected {
+                        base
+                    } else {
+                        base.fg(theme.muted)
+                    },
+                ));
             }
             ListItem::new(Line::from(spans))
         })
