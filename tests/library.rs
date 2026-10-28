@@ -93,6 +93,34 @@ fn oversized_output_and_fileless_edits_cannot_be_published() {
 }
 
 #[test]
+fn nonfinite_output_never_replaces_a_valid_drawing() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("finite.draw");
+    let mut state = DrawState::create(&path).unwrap();
+    state
+        .data
+        .elements
+        .push(DrawItem::new(DrawElement::Text(Text {
+            content: "keep me".into(),
+            x: 0.0,
+            y: 0.0,
+            color: (1, 2, 3),
+        })));
+    state.save().unwrap();
+    let original = std::fs::read(&path).unwrap();
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let DrawElement::Text(text) = &mut state.data.elements[0].element else {
+            unreachable!();
+        };
+        text.x = value;
+        assert!(state.save().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(DrawState::load(&path).is_ok());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+
+#[test]
 fn failed_save_keeps_edit_and_single_history_entry_for_retry() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("art.draw");

@@ -35,6 +35,9 @@ impl DrawData {
                 self.version
             ));
         }
+        if !self.width.is_finite() || !self.height.is_finite() {
+            return Err("draw dimensions must be finite".to_string());
+        }
 
         let mut ids = HashSet::with_capacity(self.elements.len());
         for item in &self.elements {
@@ -42,6 +45,7 @@ impl DrawData {
             if !ids.insert(item.id.as_str()) {
                 return Err(format!("draw item ID '{}' is duplicated", item.id));
             }
+            item.element.validate()?;
             item.transform.validate_for(&item.element)?;
         }
         Ok(())
@@ -323,6 +327,49 @@ pub enum DrawElement {
     Text(Text),
 }
 
+impl DrawElement {
+    fn validate(&self) -> Result<(), String> {
+        let finite = match self {
+            Self::Stroke(stroke) => stroke
+                .points
+                .iter()
+                .all(|(x, y)| x.is_finite() && y.is_finite()),
+            Self::Shape(
+                Shape::Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                }
+                | Shape::Ellipse {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                }
+                | Shape::Diamond {
+                    x,
+                    y,
+                    width,
+                    height,
+                    ..
+                },
+            ) => [*x, *y, *width, *height].into_iter().all(f64::is_finite),
+            Self::Shape(
+                Shape::Line { x1, y1, x2, y2, .. } | Shape::Arrow { x1, y1, x2, y2, .. },
+            ) => [*x1, *y1, *x2, *y2].into_iter().all(f64::is_finite),
+            Self::Text(text) => text.x.is_finite() && text.y.is_finite(),
+        };
+        if finite {
+            Ok(())
+        } else {
+            Err("draw element coordinates must be finite".to_string())
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
     pub points: Vec<(f64, f64)>,
@@ -546,6 +593,96 @@ mod tests {
                 .unwrap_err()
                 .contains("scale must be positive")
         );
+    }
+
+    #[test]
+    fn validation_rejects_nonfinite_dimensions_and_element_coordinates() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            for (width, height) in [(value, 1.0), (1.0, value)] {
+                let data = DrawData {
+                    width,
+                    height,
+                    ..DrawData::default()
+                };
+                assert!(
+                    data.validate()
+                        .unwrap_err()
+                        .contains("dimensions must be finite")
+                );
+            }
+            for coordinates in [
+                [value, 1.0, 2.0, 3.0],
+                [1.0, value, 2.0, 3.0],
+                [1.0, 2.0, value, 3.0],
+                [1.0, 2.0, 3.0, value],
+            ] {
+                let [x, y, width, height] = coordinates;
+                let color = (1, 2, 3);
+                let elements = [
+                    DrawElement::Stroke(Stroke {
+                        points: vec![(0.0, 0.0), (x, y), (width, height)],
+                        color,
+                    }),
+                    DrawElement::Shape(Shape::Rect {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                    }),
+                    DrawElement::Shape(Shape::Ellipse {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                    }),
+                    DrawElement::Shape(Shape::Diamond {
+                        x,
+                        y,
+                        width,
+                        height,
+                        color,
+                    }),
+                    DrawElement::Shape(Shape::Line {
+                        x1: x,
+                        y1: y,
+                        x2: width,
+                        y2: height,
+                        color,
+                    }),
+                    DrawElement::Shape(Shape::Arrow {
+                        x1: x,
+                        y1: y,
+                        x2: width,
+                        y2: height,
+                        color,
+                    }),
+                    DrawElement::Text(Text {
+                        content: "text".into(),
+                        x: x + width,
+                        y: y + height,
+                        color,
+                    }),
+                ];
+                for element in elements {
+                    let data = DrawData {
+                        elements: vec![DrawItem {
+                            id: DrawItemId::new(),
+                            element,
+                            transform: DrawTransform::default(),
+                        }],
+                        ..DrawData::default()
+                    };
+                    assert!(
+                        data.validate()
+                            .unwrap_err()
+                            .contains("coordinates must be finite")
+                    );
+                    assert!(serde_json::to_string(&data).is_err());
+                }
+            }
+        }
     }
 
     #[test]
