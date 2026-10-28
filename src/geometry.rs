@@ -228,7 +228,7 @@ pub fn selection_handle_points(
 fn transformed_bounds_with_affine(item: &DrawItem, transform: DrawAffine) -> Option<DrawBounds> {
     let bounds = base_bounds(&item.element)?;
     if matches!(item.element, DrawElement::Text(_)) {
-        return Some(bounds.translated(item.transform.translate_x, item.transform.translate_y));
+        return Some(bounds.translated(transform.translate_x, transform.translate_y));
     }
 
     let corners = bounds.corners();
@@ -597,6 +597,31 @@ mod tests {
                 12.0 + "wide界".width() as f64 * TEXT_CHAR_WIDTH,
                 -1.0 + TEXT_HEIGHT,
             ))
+        );
+    }
+
+    #[test]
+    fn text_preview_bounds_follow_the_supplied_translation() {
+        let mut text = item(DrawElement::Text(Text {
+            content: "text".into(),
+            x: 0.0,
+            y: 0.0,
+            color: (0, 0, 0),
+        }));
+        text.transform.translate_x = 10.0;
+        text.transform.translate_y = -4.0;
+        let preview = DrawTransform {
+            translate_x: 50.0,
+            translate_y: 20.0,
+            ..text.transform
+        };
+        assert_eq!(
+            transformed_bounds_with_transform(&text, &preview),
+            Some(DrawBounds::from_corners(50.0, 20.0, 82.0, 32.0))
+        );
+        assert_eq!(
+            transformed_bounds(&text),
+            Some(DrawBounds::from_corners(10.0, -4.0, 42.0, 8.0))
         );
     }
 
