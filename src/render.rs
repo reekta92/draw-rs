@@ -4,8 +4,8 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::symbols::Marker;
-use ratatui::widgets::Block;
 use ratatui::widgets::canvas::{Canvas, Context, Line, Rectangle};
+use ratatui::widgets::{Block, Paragraph};
 
 pub fn draw_view(
     frame: &mut Frame,
@@ -96,9 +96,15 @@ pub fn draw_view(
             theme,
             mouse_pos,
         );
+        let selector = crate::ui::selector_rect(area, 11, shapes.len());
         crate::ui::draw_hints(
             frame,
-            area,
+            Rect::new(
+                selector.x,
+                selector.y,
+                selector.width,
+                selector.height.saturating_add(1).min(area.height),
+            ),
             &hints.shape_confirm,
             &hints.shape_cancel,
             theme,
@@ -123,9 +129,15 @@ pub fn draw_view(
             theme,
             mouse_pos,
         );
+        let selector = crate::ui::selector_rect(area, 14, items.len());
         crate::ui::draw_hints(
             frame,
-            area,
+            Rect::new(
+                selector.x,
+                selector.y,
+                selector.width,
+                selector.height.saturating_add(1).min(area.height),
+            ),
             &hints.color_confirm,
             &hints.color_cancel,
             theme,
@@ -136,15 +148,44 @@ pub fn draw_view(
         let content = crate::ui::editor_rect(area);
         textarea.set_block(
             Block::bordered()
-                .title("EDIT TEXT")
                 .style(theme.bg_style())
-                .border_style(Style::default().fg(theme.accent)),
+                .border_style(Style::default().fg(theme.heading)),
         );
         textarea.set_style(theme.bg_style());
+        if content.y > area.y {
+            let title = " EDIT TEXT ";
+            let width = ratatui::text::Line::from(title)
+                .width()
+                .min(content.width as usize) as u16;
+            frame.render_widget(
+                Paragraph::new(title).style(
+                    Style::default()
+                        .fg(theme.selected.fg.unwrap_or(theme.text))
+                        .bg(theme.heading),
+                ),
+                Rect::new(
+                    content.x + (content.width - width) / 2,
+                    content.y - 1,
+                    width,
+                    1,
+                ),
+            );
+        }
         frame.render_widget(ratatui::widgets::Clear, content);
         frame.render_widget(&*textarea, content);
         app.text_editor_rect = Some(Block::bordered().inner(content));
-        crate::ui::draw_hints(frame, area, &hints.text_confirm, &hints.text_cancel, theme);
+        crate::ui::draw_hints(
+            frame,
+            Rect::new(
+                content.x,
+                content.y,
+                content.width,
+                content.height.saturating_add(1).min(area.height),
+            ),
+            &hints.text_confirm,
+            &hints.text_cancel,
+            theme,
+        );
     }
 }
 
@@ -612,6 +653,7 @@ fn draw_shape_colored(
 pub struct ThemeColors {
     pub bg: Option<Color>,
     pub accent: Color,
+    pub heading: Color,
     pub muted: Color,
     pub text: Color,
     pub popup_bg: Option<Color>,
@@ -623,6 +665,7 @@ impl Default for ThemeColors {
         Self {
             bg: None,
             accent: Color::Cyan,
+            heading: Color::Yellow,
             muted: Color::DarkGray,
             text: Color::White,
             popup_bg: None,
