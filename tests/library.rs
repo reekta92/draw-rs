@@ -307,13 +307,13 @@ fn tool_and_selector_changes_cancel_erasure_without_losing_items() {
         let original = state.data.clone();
         state.set_active_tool(DrawTool::Erase);
         mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
-        assert!(state.data.elements.is_empty());
+        assert_eq!(state.data.elements.len(), 0);
 
         draw::apply_action(&mut state, action, &mut None).unwrap();
         mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 50, 25).unwrap();
         assert_eq!(state.data, original, "{action:?}");
         assert_eq!(state.undo_stack.len(), 1);
-        assert!(state.redo_stack.is_empty());
+        assert_eq!(state.redo_stack.len(), 0);
         state.save().unwrap();
         assert_eq!(DrawState::load(&path).unwrap().data, original);
     }
@@ -339,13 +339,13 @@ fn undo_and_redo_keep_cancelled_erasure_out_of_history() {
     let resized = state.data.clone();
     state.set_active_tool(DrawTool::Erase);
     mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
-    assert!(state.data.elements.is_empty());
+    assert_eq!(state.data.elements.len(), 0);
 
     assert!(state.undo().unwrap());
     assert_eq!(state.data, original);
     assert_eq!(state.redo_stack.last(), Some(&resized));
     mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
-    assert!(state.data.elements.is_empty());
+    assert_eq!(state.data.elements.len(), 0);
     assert!(state.redo().unwrap());
     assert_eq!(state.data, resized);
     assert_eq!(state.undo_stack.last(), Some(&original));
