@@ -283,7 +283,7 @@ fn click_strokes_remain_visible_in_canvas_and_snapshot() {
 }
 
 #[test]
-fn tool_and_selector_changes_cancel_erasure_without_losing_items() {
+fn tool_selector_and_paste_changes_cancel_erasure_without_losing_items() {
     let dir = tempfile::tempdir().unwrap();
     for action in [
         DrawAction::SelectCursorTool,
@@ -292,6 +292,7 @@ fn tool_and_selector_changes_cancel_erasure_without_losing_items() {
         DrawAction::SelectEraseTool,
         DrawAction::ToggleShapeSelector,
         DrawAction::ToggleColorSelector,
+        DrawAction::Paste,
     ] {
         let path = dir.path().join(format!("{action:?}.draw"));
         let mut state = DrawState::create(&path).unwrap();
@@ -309,7 +310,7 @@ fn tool_and_selector_changes_cancel_erasure_without_losing_items() {
         mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
         assert_eq!(state.data.elements.len(), 0);
 
-        draw::apply_action(&mut state, action, &mut None).unwrap();
+        draw::apply_action(&mut state, action, &mut Some(original.elements[0].clone())).unwrap();
         mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 50, 25).unwrap();
         assert_eq!(state.data, original, "{action:?}");
         assert_eq!(state.undo_stack.len(), 1);

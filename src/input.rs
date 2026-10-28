@@ -540,8 +540,7 @@ fn begin_paste(app: &mut DrawState, clipboard: Option<&DrawItem>, anchor: Option
         .unwrap_or((app.viewport.x, app.viewport.y));
     let mut item = crate::state::pasted_item(clipboard);
     place_pasted_item(&mut item, point);
-    app.selection.clear();
-    app.hovered = None;
+    app.clear_transient_interaction();
     app.interaction = Some(DrawInteraction::Paste { item });
 }
 
