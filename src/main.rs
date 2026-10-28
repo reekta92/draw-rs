@@ -394,6 +394,61 @@ mod tests {
     }
 
     #[test]
+    fn right_click_release_allows_departure_after_menu_dismissal() {
+        for with_item in [false, true] {
+            let mut state = DrawState::new();
+            state.set_canvas_area(Rect::new(0, 1, 100, 50));
+            if with_item {
+                state
+                    .data
+                    .elements
+                    .push(draw::DrawItem::new(draw::DrawElement::Stroke(
+                        draw::Stroke {
+                            points: vec![(-20.0, 0.0), (20.0, 0.0)],
+                            color: (1, 2, 3),
+                        },
+                    )));
+            }
+            let mut clipboard = None;
+            for kind in [
+                MouseEventKind::Down(MouseButton::Right),
+                MouseEventKind::Up(MouseButton::Right),
+            ] {
+                draw::handle_draw_mouse(
+                    &mut state,
+                    crossterm::event::MouseEvent {
+                        kind,
+                        column: 50,
+                        row: 25,
+                        modifiers: KeyModifiers::NONE,
+                    },
+                    &mut clipboard,
+                )
+                .unwrap();
+            }
+            assert_eq!(state.context_menu.is_some(), with_item);
+            if with_item {
+                key_event(
+                    &mut state,
+                    KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                    &mut clipboard,
+                )
+                .unwrap();
+            }
+            assert!(state.input_available());
+            assert_eq!(
+                key_event(
+                    &mut state,
+                    KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+                    &mut clipboard
+                )
+                .unwrap(),
+                DrawEventAction::Quit
+            );
+        }
+    }
+
+    #[test]
     fn toolbar_hit_regions_follow_rendered_labels() {
         let mut column = 7;
         for (label, action) in TOOL_TABS {
