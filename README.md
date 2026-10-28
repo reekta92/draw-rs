@@ -26,6 +26,8 @@ Keys: `a` cursor, `d` draw, `s` shape, `t` text, `e` erase, `c` color,
 Right-click opens an element menu; right/middle drag pans; scroll zooms.
 `Enter` confirms editors/selectors. `Esc` cancels a transform, clears selection,
 then leaves; `q` leaves. Finish or explicitly cancel an interaction before leaving.
+Switching tools, opening a selector, or starting element paste cancels unfinished
+erasure and restores its items.
 Text editors consume printable `q`. Text copy/cut/paste uses textarea-local storage;
 the binary does not access the system clipboard or load clin configuration.
 
@@ -70,7 +72,8 @@ Commits, undo and redo save eagerly and retain at most 20 history entries. A
 failed write keeps live data and history; retry `save()` without reapplying the
 operation. Changed fileless drawings return `Drawing has changes but no save target`.
 
-Serialization validates IDs and transforms before publication. Atomic saves use
+Serialization validates IDs, finite dimensions and coordinates, and transforms
+before publication. Atomic saves use
 exclusive temporary files, preserve permissions, sync, rename, and sync the parent
 directory on Unix. A failure after rename can mean data has already reached disk;
 retain the state and report the error. Concurrent external edits are not detected

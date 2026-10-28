@@ -144,15 +144,14 @@ pub fn draw_view(
         );
     }
     app.text_editor_rect = None;
-    if let Some((_, textarea)) = &app.text_editor {
+    if let Some((_, textarea)) = &mut app.text_editor {
         let content = crate::ui::editor_rect(area);
-        let mut themed_textarea = textarea.clone();
-        themed_textarea.set_block(
+        textarea.set_block(
             Block::bordered()
                 .style(theme.bg_style())
                 .border_style(Style::default().fg(theme.heading)),
         );
-        themed_textarea.set_style(theme.bg_style());
+        textarea.set_style(theme.bg_style());
         if content.y > area.y {
             let title = " EDIT TEXT ";
             let width = ratatui::text::Line::from(title)
@@ -173,7 +172,7 @@ pub fn draw_view(
             );
         }
         frame.render_widget(ratatui::widgets::Clear, content);
-        frame.render_widget(&themed_textarea, content);
+        frame.render_widget(&*textarea, content);
         app.text_editor_rect = Some(Block::bordered().inner(content));
         crate::ui::draw_hints(
             frame,
@@ -443,6 +442,9 @@ fn draw_stroke_colored(
     transform: crate::geometry::DrawAffine,
     color: Color,
 ) {
+    if let [point] = stroke.points.as_slice() {
+        draw_transformed_line(ctx, *point, *point, color, transform);
+    }
     for window in stroke.points.windows(2) {
         if let [start, end] = window {
             draw_transformed_line(ctx, *start, *end, color, transform);
@@ -639,17 +641,7 @@ fn draw_shape_colored(
             let end = (*x2, *y2);
             draw_transformed_line(ctx, start, end, draw_color, transform);
 
-            let angle = (y2 - y1).atan2(x2 - x1);
-            let head_length = 5.0;
-            let head_angle = std::f64::consts::PI / 6.0;
-            let left = (
-                x2 - head_length * (angle - head_angle).cos(),
-                y2 - head_length * (angle - head_angle).sin(),
-            );
-            let right = (
-                x2 - head_length * (angle + head_angle).cos(),
-                y2 - head_length * (angle + head_angle).sin(),
-            );
+            let [left, right] = crate::geometry::arrow_head_points(*x1, *y1, *x2, *y2);
             draw_transformed_line(ctx, end, left, draw_color, transform);
             draw_transformed_line(ctx, end, right, draw_color, transform);
         }
@@ -720,6 +712,78 @@ impl Default for DrawHints {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrolled_editor_mouse_selection_matches_visible_text() {
+        use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+        use ratatui::{Terminal, backend::TestBackend};
+
+        let mut app = DrawState::new();
+        let item = DrawItem::new(DrawElement::Text(crate::state::Text {
+            content: String::new(),
+            x: 0.0,
+            y: 0.0,
+            color: (255, 255, 255),
+        }));
+        let id = item.id.clone();
+        app.data.elements.push(item);
+        assert!(app.begin_text_editor(id));
+        let text = "0123456789".repeat(10);
+        assert!(app.insert_text(&text));
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_view(
+                    frame,
+                    &mut app,
+                    Rect::new(0, 0, 100, 30),
+                    &ThemeColors::default(),
+                    &DrawHints::default(),
+                    None,
+                )
+            })
+            .unwrap();
+        let (row, col) = app.text_editor_mut().unwrap().scroll_offset();
+        assert_eq!(row, 0);
+        assert!(col > 0);
+        let body = app.text_editor_rect.unwrap();
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((body.x, body.y))
+                .unwrap()
+                .symbol(),
+            &text[col as usize..col as usize + 1]
+        );
+
+        for (kind, x) in [
+            (MouseEventKind::Down(MouseButton::Left), body.x),
+            (MouseEventKind::Drag(MouseButton::Left), body.x + 3),
+            (MouseEventKind::Up(MouseButton::Left), body.x + 3),
+        ] {
+            let result = crate::handle_draw_mouse(
+                &mut app,
+                MouseEvent {
+                    kind,
+                    column: x,
+                    row: body.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                &mut None,
+            )
+            .unwrap();
+            if matches!(kind, MouseEventKind::Down(_)) {
+                assert_eq!(app.text_editor_mut().unwrap().cursor(), (0, col as usize));
+            }
+            if matches!(kind, MouseEventKind::Up(_)) {
+                assert_eq!(
+                    result,
+                    crate::DrawEventAction::CopyText(text[col as usize..col as usize + 3].into())
+                );
+            }
+        }
+    }
 
     #[test]
     fn hover_and_selection_blend_item_color_toward_accent() {

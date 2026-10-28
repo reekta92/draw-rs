@@ -45,7 +45,12 @@ impl<Id: Eq + Hash + Clone> CanvasSelection<Id> {
         self.primary.is_none() && self.extra.is_empty()
     }
     pub fn count(&self) -> usize {
-        self.extra.len() + usize::from(self.primary.is_some())
+        self.extra.len()
+            + usize::from(
+                self.primary
+                    .as_ref()
+                    .is_some_and(|id| !self.extra.contains(id)),
+            )
     }
 }
 
@@ -97,6 +102,7 @@ mod tests {
         s.replace_set(set, Some("x".to_string()));
         assert_eq!(s.primary.as_deref(), Some("x"));
         assert!(s.extra.contains("y"));
+        assert_eq!(s.count(), 2);
     }
 
     #[test]
@@ -128,7 +134,12 @@ mod tests {
         assert_eq!(s.count(), 0);
         s.select_only("a".to_string());
         assert_eq!(s.count(), 1);
+        s.add("a".to_string());
+        assert_eq!(s.count(), 1);
         s.add("b".to_string());
+        assert_eq!(s.count(), 2);
+        assert_eq!(s.count(), s.all().len());
+        s.primary = None;
         assert_eq!(s.count(), 2);
     }
 }

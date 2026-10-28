@@ -289,10 +289,7 @@ fn handle_mouse(
                 app.right_mouse
                     .is_dragging_screen(ev.column, ev.row, start_x, start_y)
             });
-            if dragged {
-                app.is_panning = false;
-                app.last_mouse_pos = None;
-            } else {
+            if !dragged {
                 let point = screen_to_canvas(ev.column, ev.row, app);
                 let target = app.right_mouse_target.take().map_or(
                     DrawMenuTarget::Empty {
@@ -319,8 +316,11 @@ fn handle_mouse(
                 app.hovered = None;
                 app.open_context_menu(ev.column, ev.row, target, clipboard.is_some());
             }
+            app.is_panning = false;
+            app.last_mouse_pos = None;
             app.right_mouse.clear();
             app.right_mouse_screen = None;
+            app.right_mouse_target = None;
         }
         MouseEventKind::Down(MouseButton::Middle) => {
             app.last_mouse_pos = Some((ev.column, ev.row));
@@ -557,8 +557,7 @@ fn begin_paste(app: &mut DrawState, clipboard: Option<&DrawItem>, anchor: Option
         .unwrap_or((app.viewport.x, app.viewport.y));
     let mut item = crate::state::pasted_item(clipboard);
     place_pasted_item(&mut item, point);
-    app.selection.clear();
-    app.hovered = None;
+    app.clear_transient_interaction();
     app.interaction = Some(DrawInteraction::Paste { item });
 }
 
