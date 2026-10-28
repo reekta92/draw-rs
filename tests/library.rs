@@ -206,6 +206,76 @@ fn all_tools_complete_one_operation_and_captured_release_outside_canvas() {
 }
 
 #[test]
+fn tool_and_selector_changes_cancel_erasure_without_losing_items() {
+    let dir = tempfile::tempdir().unwrap();
+    for action in [
+        DrawAction::SelectCursorTool,
+        DrawAction::SelectDrawTool,
+        DrawAction::SelectTextTool,
+        DrawAction::SelectEraseTool,
+        DrawAction::ToggleShapeSelector,
+        DrawAction::ToggleColorSelector,
+    ] {
+        let path = dir.path().join(format!("{action:?}.draw"));
+        let mut state = DrawState::create(&path).unwrap();
+        state.set_canvas_area(Rect::new(0, 0, 100, 50));
+        state
+            .data
+            .elements
+            .push(DrawItem::new(DrawElement::Stroke(draw::Stroke {
+                points: vec![(-20.0, 0.0), (20.0, 0.0)],
+                color: (255, 255, 255),
+            })));
+        state.commit_data_change(DrawData::default()).unwrap();
+        let original = state.data.clone();
+        state.set_active_tool(DrawTool::Erase);
+        mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
+        assert!(state.data.elements.is_empty());
+
+        draw::apply_action(&mut state, action, &mut None).unwrap();
+        mouse(&mut state, MouseEventKind::Up(MouseButton::Left), 50, 25).unwrap();
+        assert_eq!(state.data, original, "{action:?}");
+        assert_eq!(state.undo_stack.len(), 1);
+        assert!(state.redo_stack.is_empty());
+        state.save().unwrap();
+        assert_eq!(DrawState::load(&path).unwrap().data, original);
+    }
+}
+
+#[test]
+fn undo_and_redo_keep_cancelled_erasure_out_of_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("erase-history.draw");
+    let mut state = DrawState::create(&path).unwrap();
+    state.set_canvas_area(Rect::new(0, 0, 100, 50));
+    state
+        .data
+        .elements
+        .push(DrawItem::new(DrawElement::Stroke(draw::Stroke {
+            points: vec![(-20.0, 0.0), (20.0, 0.0)],
+            color: (255, 255, 255),
+        })));
+    state.commit_data_change(DrawData::default()).unwrap();
+    let original = state.data.clone();
+    state.data.width = 800.0;
+    state.commit_data_change(original.clone()).unwrap();
+    let resized = state.data.clone();
+    state.set_active_tool(DrawTool::Erase);
+    mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
+    assert!(state.data.elements.is_empty());
+
+    assert!(state.undo().unwrap());
+    assert_eq!(state.data, original);
+    assert_eq!(state.redo_stack.last(), Some(&resized));
+    mouse(&mut state, MouseEventKind::Down(MouseButton::Left), 50, 25).unwrap();
+    assert!(state.data.elements.is_empty());
+    assert!(state.redo().unwrap());
+    assert_eq!(state.data, resized);
+    assert_eq!(state.undo_stack.last(), Some(&original));
+    assert_eq!(DrawState::load(&path).unwrap().data, resized);
+}
+
+#[test]
 fn nonzero_tiny_and_resized_canvases_keep_popups_inside_and_snapshots_clean() {
     let mut terminal = Terminal::new(TestBackend::new(100, 60)).unwrap();
     let mut state = DrawState::new();

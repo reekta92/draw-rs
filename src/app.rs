@@ -390,9 +390,9 @@ impl DrawState {
         let Some(previous) = self.undo_stack.pop() else {
             return Ok(false);
         };
+        self.clear_transient_interaction();
         let current = std::mem::replace(&mut self.data, previous);
         Self::push_history(&mut self.redo_stack, current);
-        self.clear_transient_interaction();
         self.save()?;
         Ok(true)
     }
@@ -401,9 +401,9 @@ impl DrawState {
         let Some(next) = self.redo_stack.pop() else {
             return Ok(false);
         };
+        self.clear_transient_interaction();
         let current = std::mem::replace(&mut self.data, next);
         Self::push_history(&mut self.undo_stack, current);
-        self.clear_transient_interaction();
         self.save()?;
         Ok(true)
     }
@@ -412,7 +412,9 @@ impl DrawState {
         self.current_stroke = None;
         self.creation_origin = None;
         self.preview_element = None;
-        self.erase_start_data = None;
+        if let Some(previous) = self.erase_start_data.take() {
+            self.data = previous;
+        }
         self.text_editor = None;
         self.text_editor_rect = None;
         self.mouse_selection = crate::ui::MouseTextSelection::default();
