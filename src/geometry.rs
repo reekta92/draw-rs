@@ -395,7 +395,7 @@ fn point_to_segment_distance(point: (f64, f64), start: (f64, f64), end: (f64, f6
     (point.0 - (start.0 + projection * delta_x)).hypot(point.1 - (start.1 + projection * delta_y))
 }
 
-fn arrow_head_points(x1: f64, y1: f64, x2: f64, y2: f64) -> [(f64, f64); 2] {
+pub(crate) fn arrow_head_points(x1: f64, y1: f64, x2: f64, y2: f64) -> [(f64, f64); 2] {
     let angle = (y2 - y1).atan2(x2 - x1);
     let head_length = 5.0;
     let head_angle = std::f64::consts::PI / 6.0;

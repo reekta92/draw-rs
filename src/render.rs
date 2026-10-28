@@ -600,17 +600,7 @@ fn draw_shape_colored(
             let end = (*x2, *y2);
             draw_transformed_line(ctx, start, end, draw_color, transform);
 
-            let angle = (y2 - y1).atan2(x2 - x1);
-            let head_length = 5.0;
-            let head_angle = std::f64::consts::PI / 6.0;
-            let left = (
-                x2 - head_length * (angle - head_angle).cos(),
-                y2 - head_length * (angle - head_angle).sin(),
-            );
-            let right = (
-                x2 - head_length * (angle + head_angle).cos(),
-                y2 - head_length * (angle + head_angle).sin(),
-            );
+            let [left, right] = crate::geometry::arrow_head_points(*x1, *y1, *x2, *y2);
             draw_transformed_line(ctx, end, left, draw_color, transform);
             draw_transformed_line(ctx, end, right, draw_color, transform);
         }
