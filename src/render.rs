@@ -401,6 +401,9 @@ fn draw_stroke_colored(
     transform: crate::geometry::DrawAffine,
     color: Color,
 ) {
+    if let [point] = stroke.points.as_slice() {
+        draw_transformed_line(ctx, *point, *point, color, transform);
+    }
     for window in stroke.points.windows(2) {
         if let [start, end] = window {
             draw_transformed_line(ctx, *start, *end, color, transform);
