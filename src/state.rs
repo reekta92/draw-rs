@@ -51,6 +51,62 @@ impl DrawData {
         Ok(())
     }
 
+    /// Append an item without changing its identity or the existing item order.
+    pub fn add_item(&mut self, item: DrawItem) -> Result<(), String> {
+        self.edit(|data| {
+            data.elements.push(item);
+            Ok(())
+        })
+    }
+
+    /// Replace an item in place; the replacement must retain the target ID.
+    pub fn update_item(&mut self, id: &DrawItemId, item: DrawItem) -> Result<(), String> {
+        if item.id != *id {
+            return Err("replacement draw item must retain the target ID".to_string());
+        }
+        self.edit(|data| {
+            let target = data
+                .item_mut(id)
+                .ok_or_else(|| format!("draw item '{id}' does not exist"))?;
+            *target = item;
+            Ok(())
+        })
+    }
+
+    pub fn delete_item(&mut self, id: &DrawItemId) -> Result<(), String> {
+        self.edit(|data| {
+            let index = data
+                .elements
+                .iter()
+                .position(|item| item.id == *id)
+                .ok_or_else(|| format!("draw item '{id}' does not exist"))?;
+            data.elements.remove(index);
+            Ok(())
+        })
+    }
+
+    /// Replace the item's absolute transform, using the native element rules.
+    pub fn transform_item(
+        &mut self,
+        id: &DrawItemId,
+        transform: DrawTransform,
+    ) -> Result<(), String> {
+        let mut item = self
+            .item(id)
+            .ok_or_else(|| format!("draw item '{id}' does not exist"))?
+            .clone();
+        item.transform = transform;
+        self.update_item(id, item)
+    }
+
+    fn edit(&mut self, change: impl FnOnce(&mut Self) -> Result<(), String>) -> Result<(), String> {
+        let mut next = self.clone();
+        change(&mut next)?;
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+
     #[must_use]
     pub fn item(&self, id: &DrawItemId) -> Option<&DrawItem> {
         self.elements.iter().find(|item| &item.id == id)
@@ -102,6 +158,7 @@ impl std::fmt::Display for DrawItemId {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DrawItem {
     pub id: DrawItemId,
     pub element: DrawElement,
@@ -131,6 +188,7 @@ pub fn pasted_item(item: &DrawItem) -> DrawItem {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DrawTransform {
     pub pivot_x: f64,
     pub pivot_y: f64,
@@ -186,6 +244,7 @@ impl Default for DrawTransform {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct V2DrawData {
     version: u8,
     #[serde(default = "default_draw_dimension")]
@@ -198,6 +257,7 @@ struct V2DrawData {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LegacyDrawData {
     #[serde(default)]
     version: Option<u8>,
@@ -248,7 +308,12 @@ impl<'de> Deserialize<'de> for DrawData {
     where
         D: Deserializer<'de>,
     {
-        match DrawDataWire::deserialize(deserializer)? {
+        let wire = DrawDataWire::deserialize(deserializer).map_err(|error| {
+            D::Error::custom(format!(
+                "unsupported or malformed draw document; check schema, fields and element records: {error}"
+            ))
+        })?;
+        match wire {
             DrawDataWire::V2(data) => {
                 if data.version > DRAW_SCHEMA_VERSION {
                     return Err(D::Error::custom(format!(
@@ -289,19 +354,19 @@ impl<'de> Deserialize<'de> for DrawData {
                 let elements = data
                     .elements
                     .into_iter()
-                    .filter_map(|element| match element {
+                    .map(|element| match element {
                         LegacyDrawElement::Stroke(stroke) => {
-                            Some(DrawItem::new(DrawElement::Stroke(stroke)))
+                            Ok(DrawItem::new(DrawElement::Stroke(stroke)))
                         }
                         LegacyDrawElement::Shape(shape) => {
-                            Some(DrawItem::new(DrawElement::Shape(shape)))
+                            Ok(DrawItem::new(DrawElement::Shape(shape)))
                         }
-                        LegacyDrawElement::Text(text) => {
-                            Some(DrawItem::new(DrawElement::Text(text)))
-                        }
-                        LegacyDrawElement::Image(_) => None,
+                        LegacyDrawElement::Text(text) => Ok(DrawItem::new(DrawElement::Text(text))),
+                        LegacyDrawElement::Image(_) => Err(D::Error::custom(
+                            "unsupported legacy Image element; drawing cannot be safely rewritten",
+                        )),
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>, _>>()?;
                 let data = Self {
                     version: DRAW_SCHEMA_VERSION,
                     width: data.width.unwrap_or_else(default_draw_dimension),
@@ -371,12 +436,14 @@ impl DrawElement {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stroke {
     pub points: Vec<(f64, f64)>,
     pub color: (u8, u8, u8),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Shape {
     Rect {
         x: f64,
@@ -425,6 +492,7 @@ pub enum DrawShapeType {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Text {
     pub content: String,
     pub x: f64,
@@ -509,14 +577,14 @@ mod tests {
     }
 
     #[test]
-    fn legacy_versions_migrate_and_drop_images() {
+    fn clean_legacy_versions_migrate_strokes_shapes_and_text() {
         for version in [None, Some(0), Some(1)] {
             let mut source = serde_json::json!({
                 "width": 200.0,
                 "height": 300.0,
                 "elements": [
                     {"Stroke": {"points": [[1.0, 2.0], [3.0, 4.0]], "color": [1, 2, 3]}},
-                    {"Image": {"id": "legacy", "path": "image.png", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}},
+                    {"Shape": {"Rect": {"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0, "color": [1, 2, 3]}}},
                     {"Text": {"content": "legacy", "x": 20.0, "y": 30.0, "color": [4, 5, 6]}}
                 ]
             });
@@ -526,7 +594,7 @@ mod tests {
 
             let data: DrawData = serde_json::from_value(source).unwrap();
             assert_eq!(data.version, DRAW_SCHEMA_VERSION);
-            assert_eq!(data.elements.len(), 2);
+            assert_eq!(data.elements.len(), 3);
             assert!(data.elements.iter().all(|item| {
                 Uuid::parse_str(item.id.as_str()).is_ok()
                     && item.transform.scale == 1.0
@@ -534,6 +602,345 @@ mod tests {
                     && item.transform.translate_x == 0.0
                     && item.transform.translate_y == 0.0
             }));
+        }
+    }
+
+    #[test]
+    fn unknown_fields_are_rejected_at_every_document_layer() {
+        let item = v2_item_value(&DrawItemId::new().0);
+        let document = serde_json::json!({"version": 2, "elements": [item]});
+        for pointer in [
+            "",
+            "/elements/0",
+            "/elements/0/transform",
+            "/elements/0/element/Stroke",
+        ] {
+            let mut source = document.clone();
+            source.pointer_mut(pointer).unwrap()["extension"] = serde_json::json!(42);
+            let error = serde_json::from_value::<DrawData>(source).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported or malformed draw document"),
+                "{error}"
+            );
+        }
+        let elements = [
+            DrawElement::Text(Text {
+                content: "text".into(),
+                x: 1.0,
+                y: 2.0,
+                color: (1, 2, 3),
+            }),
+            DrawElement::Shape(Shape::Rect {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                color: (1, 2, 3),
+            }),
+            DrawElement::Shape(Shape::Ellipse {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                color: (1, 2, 3),
+            }),
+            DrawElement::Shape(Shape::Diamond {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+                color: (1, 2, 3),
+            }),
+            DrawElement::Shape(Shape::Line {
+                x1: 1.0,
+                y1: 2.0,
+                x2: 3.0,
+                y2: 4.0,
+                color: (1, 2, 3),
+            }),
+            DrawElement::Shape(Shape::Arrow {
+                x1: 1.0,
+                y1: 2.0,
+                x2: 3.0,
+                y2: 4.0,
+                color: (1, 2, 3),
+            }),
+        ];
+        for element in elements {
+            let mut value = serde_json::to_value(&element).unwrap();
+            let fields = match &element {
+                DrawElement::Text(_) => &mut value["Text"],
+                DrawElement::Shape(_) => value["Shape"]
+                    .as_object_mut()
+                    .unwrap()
+                    .values_mut()
+                    .next()
+                    .unwrap(),
+                DrawElement::Stroke(_) => unreachable!(),
+            };
+            fields["extension"] = serde_json::json!(42);
+            for version in [0, 1, 2] {
+                let record = if version == 2 {
+                    let mut record = item.clone();
+                    record["element"] = value.clone();
+                    record["transform"] = serde_json::to_value(DrawTransform::default()).unwrap();
+                    record
+                } else {
+                    value.clone()
+                };
+                let source = serde_json::json!({"version": version, "elements": [record]});
+                let error = serde_json::from_value::<DrawData>(source).unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("unsupported or malformed draw document"),
+                    "{error}"
+                );
+            }
+        }
+        for version in [None, Some(0), Some(1), Some(2)] {
+            let mut source = serde_json::json!({"elements": [], "extension": 42});
+            if let Some(version) = version {
+                source["version"] = serde_json::json!(version);
+            }
+            assert!(serde_json::from_value::<DrawData>(source).is_err());
+        }
+        let mut source = document;
+        source["elements"][0]["element"]["extension"] = serde_json::json!(42);
+        assert!(serde_json::from_value::<DrawData>(source).is_err());
+    }
+
+    #[test]
+    fn duplicate_document_and_nested_fields_are_rejected_without_collapsing_data() {
+        let data = DrawData {
+            elements: vec![DrawItem::new(stroke())],
+            ..DrawData::default()
+        };
+        let source = serde_json::to_string(&data).unwrap();
+        for field in [
+            "\"version\":2".to_string(),
+            format!("\"id\":\"{}\"", data.elements[0].id),
+            "\"scale\":1.0".to_string(),
+            "\"color\":[1,2,3]".to_string(),
+        ] {
+            assert!(source.contains(&field));
+            let duplicate = source.replacen(&field, &format!("{field},{field}"), 1);
+            assert!(
+                serde_json::from_str::<DrawData>(&duplicate).is_err(),
+                "{duplicate}"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_images_and_mismatched_record_versions_are_rejected() {
+        for version in [None, Some(0), Some(1)] {
+            let mut source = serde_json::json!({"elements": [{"Image": {"path": "keep.png"}}]});
+            if let Some(version) = version {
+                source["version"] = serde_json::json!(version);
+            }
+            assert!(
+                serde_json::from_value::<DrawData>(source)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("unsupported legacy Image")
+            );
+        }
+        for source in [
+            serde_json::json!({"version": 1, "elements": [v2_item_value(&DrawItemId::new().0)]}),
+            serde_json::json!({"version": 2, "elements": [{"Stroke": {"points": [], "color": [1, 2, 3]}}]}),
+            serde_json::json!({"version": 3, "extension": 42, "elements": []}),
+            serde_json::json!({"version": 256, "elements": []}),
+        ] {
+            assert!(serde_json::from_value::<DrawData>(source).is_err());
+        }
+        for version in [0, 1, 2] {
+            let source = serde_json::json!({"version": version, "elements": []});
+            assert_eq!(
+                serde_json::from_value::<DrawData>(source).unwrap(),
+                DrawData::default()
+            );
+        }
+    }
+
+    #[test]
+    fn semantic_edits_preserve_ids_order_and_round_trip() {
+        let mut data = DrawData::default();
+        let first = DrawItem::new(stroke());
+        let second = DrawItem::new(stroke());
+        data.add_item(first.clone()).unwrap();
+        data.add_item(second.clone()).unwrap();
+        let mut replacement = first.clone();
+        replacement.element = DrawElement::Shape(Shape::Line {
+            x1: 1.0,
+            y1: 2.0,
+            x2: 3.0,
+            y2: 4.0,
+            color: (5, 6, 7),
+        });
+        data.update_item(&first.id, replacement.clone()).unwrap();
+        let transform = DrawTransform {
+            translate_x: 3.0,
+            translate_y: -4.0,
+            rotation_degrees: 180.0,
+            scale: 2.0,
+            ..replacement.transform
+        };
+        data.transform_item(&first.id, transform).unwrap();
+        assert_eq!(data.elements[0].id, first.id);
+        assert_eq!(data.elements[1], second);
+        assert_eq!(data.item(&first.id).unwrap().element, replacement.element);
+        assert_eq!(data.item(&first.id).unwrap().transform, transform);
+        let encoded = serde_json::to_string(&data).unwrap();
+        assert_eq!(serde_json::from_str::<DrawData>(&encoded).unwrap(), data);
+        data.delete_item(&first.id).unwrap();
+        assert_eq!(data.elements, [second]);
+    }
+
+    #[test]
+    fn invalid_semantic_edits_leave_the_model_unchanged() {
+        let first = DrawItem::new(stroke());
+        let mut data = DrawData::default();
+        data.add_item(first.clone()).unwrap();
+        let original = data.clone();
+        let missing = DrawItemId::new();
+        assert!(
+            data.add_item(first.clone())
+                .unwrap_err()
+                .contains("duplicated")
+        );
+        assert_eq!(data, original);
+        assert!(
+            data.delete_item(&missing)
+                .unwrap_err()
+                .contains("does not exist")
+        );
+        assert_eq!(data, original);
+        assert!(
+            data.transform_item(&missing, DrawTransform::default())
+                .is_err()
+        );
+        assert_eq!(data, original);
+        assert!(
+            data.update_item(
+                &missing,
+                DrawItem {
+                    id: missing.clone(),
+                    ..first.clone()
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(data, original);
+        assert!(
+            data.update_item(&first.id, DrawItem::new(stroke()))
+                .unwrap_err()
+                .contains("retain the target ID")
+        );
+        assert_eq!(data, original);
+        for id in ["", "invalid", "00000000-0000-0000-0000-000000000000"] {
+            assert!(
+                data.add_item(DrawItem {
+                    id: DrawItemId(id.into()),
+                    ..first.clone()
+                })
+                .is_err()
+            );
+            assert_eq!(data, original);
+        }
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut item = first.clone();
+            item.element = DrawElement::Text(Text {
+                content: "invalid".into(),
+                x: value,
+                y: 0.0,
+                color: (1, 2, 3),
+            });
+            assert!(data.update_item(&first.id, item).is_err());
+            assert_eq!(data, original);
+            assert!(
+                data.add_item(DrawItem::new(DrawElement::Stroke(Stroke {
+                    points: vec![(value, 0.0)],
+                    color: (1, 2, 3)
+                })))
+                .is_err()
+            );
+            assert_eq!(data, original);
+        }
+        for transform in [
+            DrawTransform {
+                scale: 0.0,
+                ..first.transform
+            },
+            DrawTransform {
+                scale: -1.0,
+                ..first.transform
+            },
+            DrawTransform {
+                pivot_x: f64::NAN,
+                ..first.transform
+            },
+            DrawTransform {
+                pivot_y: f64::INFINITY,
+                ..first.transform
+            },
+            DrawTransform {
+                translate_x: f64::NAN,
+                ..first.transform
+            },
+            DrawTransform {
+                translate_y: f64::INFINITY,
+                ..first.transform
+            },
+            DrawTransform {
+                rotation_degrees: f64::NAN,
+                ..first.transform
+            },
+            DrawTransform {
+                scale: f64::INFINITY,
+                ..first.transform
+            },
+        ] {
+            assert!(data.transform_item(&first.id, transform).is_err());
+            assert_eq!(data, original);
+        }
+    }
+
+    #[test]
+    fn semantic_text_transforms_allow_translation_but_reject_rotation_and_scale() {
+        let mut data = DrawData::default();
+        let text = DrawItem::new(DrawElement::Text(Text {
+            content: "text".into(),
+            x: 1.0,
+            y: 2.0,
+            color: (1, 2, 3),
+        }));
+        data.add_item(text.clone()).unwrap();
+        let translated = DrawTransform {
+            translate_x: 10.0,
+            translate_y: -20.0,
+            ..text.transform
+        };
+        data.transform_item(&text.id, translated).unwrap();
+        let original = data.clone();
+        for transform in [
+            DrawTransform {
+                rotation_degrees: 1.0,
+                ..translated
+            },
+            DrawTransform {
+                scale: 2.0,
+                ..translated
+            },
+        ] {
+            assert!(
+                data.transform_item(&text.id, transform)
+                    .unwrap_err()
+                    .contains("identity rotation and scale")
+            );
+            assert_eq!(data, original);
         }
     }
 

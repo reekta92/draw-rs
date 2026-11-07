@@ -377,6 +377,43 @@ impl DrawState {
         self.redo_stack.clear();
     }
 
+    /// Validate, record one undo step, and save. A save failure retains the edit and history.
+    pub fn add_item(&mut self, item: crate::state::DrawItem) -> anyhow::Result<bool> {
+        let previous = self.data.clone();
+        self.data.add_item(item).map_err(anyhow::Error::msg)?;
+        self.commit_data_change(previous)
+    }
+
+    pub fn update_item(
+        &mut self,
+        id: &DrawItemId,
+        item: crate::state::DrawItem,
+    ) -> anyhow::Result<bool> {
+        let previous = self.data.clone();
+        self.data
+            .update_item(id, item)
+            .map_err(anyhow::Error::msg)?;
+        self.commit_data_change(previous)
+    }
+
+    pub fn delete_item(&mut self, id: &DrawItemId) -> anyhow::Result<bool> {
+        let previous = self.data.clone();
+        self.data.delete_item(id).map_err(anyhow::Error::msg)?;
+        self.commit_data_change(previous)
+    }
+
+    pub fn transform_item(
+        &mut self,
+        id: &DrawItemId,
+        transform: crate::state::DrawTransform,
+    ) -> anyhow::Result<bool> {
+        let previous = self.data.clone();
+        self.data
+            .transform_item(id, transform)
+            .map_err(anyhow::Error::msg)?;
+        self.commit_data_change(previous)
+    }
+
     pub fn commit_data_change(&mut self, previous: DrawData) -> anyhow::Result<bool> {
         if self.data == previous {
             return Ok(false);
@@ -594,6 +631,115 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = DrawState::create(&temp.path().join("history.draw")).unwrap();
         (temp, state)
+    }
+
+    #[test]
+    fn semantic_edits_record_and_save_once_and_no_ops_preserve_redo() {
+        use crate::state::{DrawElement, DrawItem, DrawTransform, Text};
+        let (_temp, mut state) = test_state();
+        let saves = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = saves.clone();
+        let target = state.path().unwrap().to_path_buf();
+        state.set_save_handler(move |_, after| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            crate::fsutil::atomic_write(&target, after.as_bytes())
+        });
+        let item = DrawItem::new(DrawElement::Text(Text {
+            content: "first".into(),
+            x: 1.0,
+            y: 2.0,
+            color: (1, 2, 3),
+        }));
+        assert!(state.add_item(item.clone()).unwrap());
+        assert_eq!(state.undo_stack.len(), 1);
+        let mut updated = item.clone();
+        let DrawElement::Text(text) = &mut updated.element else {
+            unreachable!()
+        };
+        text.content = "second".into();
+        assert!(state.update_item(&item.id, updated.clone()).unwrap());
+        assert_eq!(state.undo_stack.len(), 2);
+        let transform = DrawTransform {
+            translate_x: 10.0,
+            ..item.transform
+        };
+        assert!(state.transform_item(&item.id, transform).unwrap());
+        assert_eq!(state.undo_stack.len(), 3);
+        assert!(state.delete_item(&item.id).unwrap());
+        assert_eq!(state.undo_stack.len(), 4);
+        assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 4);
+        assert!(state.undo().unwrap());
+        assert_eq!(state.redo_stack.len(), 1);
+        let original = state.data.clone();
+        let saved = std::fs::read(state.path().unwrap()).unwrap();
+        state.set_save_handler(|_, _| anyhow::bail!("no-op must not save"));
+        assert!(
+            !state
+                .update_item(&item.id, state.data.item(&item.id).unwrap().clone())
+                .unwrap()
+        );
+        assert!(!state.transform_item(&item.id, transform).unwrap());
+        assert!(state.add_item(item.clone()).is_err());
+        assert!(state.delete_item(&DrawItemId::new()).is_err());
+        assert!(
+            state
+                .update_item(
+                    &item.id,
+                    DrawItem {
+                        id: DrawItemId::new(),
+                        ..updated
+                    }
+                )
+                .is_err()
+        );
+        assert!(
+            state
+                .transform_item(
+                    &item.id,
+                    DrawTransform {
+                        scale: 2.0,
+                        ..transform
+                    }
+                )
+                .is_err()
+        );
+        assert_eq!(state.data, original);
+        assert_eq!(state.undo_stack.len(), 3);
+        assert_eq!(state.redo_stack.len(), 1);
+        assert_eq!(std::fs::read(state.path().unwrap()).unwrap(), saved);
+    }
+
+    #[test]
+    fn failed_semantic_save_keeps_draft_and_history_for_retry() {
+        let (_temp, mut state) = test_state();
+        let original = std::fs::read(state.path().unwrap()).unwrap();
+        state.set_save_handler(|_, _| anyhow::bail!("save failed"));
+        let item =
+            crate::state::DrawItem::new(crate::state::DrawElement::Stroke(crate::state::Stroke {
+                points: vec![(1.0, 2.0)],
+                color: (1, 2, 3),
+            }));
+        assert!(
+            state
+                .add_item(item.clone())
+                .unwrap_err()
+                .to_string()
+                .contains("save failed")
+        );
+        assert_eq!(state.data.elements, [item]);
+        assert_eq!(state.undo_stack, [DrawData::default()]);
+        assert_eq!(std::fs::read(state.path().unwrap()).unwrap(), original);
+        let target = state.path().unwrap().to_path_buf();
+        state.set_save_handler(move |before, after| {
+            assert_eq!(before.as_bytes(), original);
+            crate::fsutil::atomic_write(&target, after.as_bytes())
+        });
+        state.save().unwrap();
+        assert_eq!(state.undo_stack.len(), 1);
+        assert_eq!(
+            DrawState::load(state.path().unwrap()).unwrap().data,
+            state.data
+        );
     }
 
     #[test]

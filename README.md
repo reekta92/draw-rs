@@ -5,8 +5,8 @@ Terminal drawing library and standalone application, extracted from
 Copyright 2026 clin-rs contributors. Licensed GPL-3.0-only; see LICENSE.
 
 The `.draw` v2 format preserves item IDs and transforms; v0/v1 documents
-migrate in memory without rewriting on load. Saving legacy documents removes
-unsupported legacy images, as clin already did.
+migrate in memory without rewriting on load. Documents containing unknown fields,
+future schemas, or unsupported legacy images are rejected to prevent data loss.
 
 ## Standalone application
 
@@ -71,6 +71,13 @@ a competing destination. Both input and serialized output are limited to 16 MiB.
 Commits, undo and redo save eagerly and retain at most 20 history entries. A
 failed write keeps live data and history; retry `save()` without reapplying the
 operation. Changed fileless drawings return `Drawing has changes but no save target`.
+
+`DrawData::add_item`, `update_item`, `delete_item`, and `transform_item` provide
+validated edits without I/O. Failures leave the model unchanged. Updates retain
+the target UUID v4 and item order; transforms replace the absolute transform and
+keep native text rotation/scale restrictions. The matching `DrawState` methods
+save one history entry per changed edit and return `false` for a no-op without
+saving. Retry `save()` after a save failure; the edit and history are retained.
 
 Serialization validates IDs, finite dimensions and coordinates, and transforms
 before publication. Atomic saves use

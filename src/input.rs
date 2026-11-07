@@ -249,16 +249,12 @@ fn handle_mouse(
                     app.creation_origin = Some(point);
                 }
                 DrawTool::Text => {
-                    let previous = app.data.clone();
-                    app.data
-                        .elements
-                        .push(DrawItem::new(DrawElement::Text(Text {
-                            content: "New Text".to_string(),
-                            x: point.0,
-                            y: point.1,
-                            color: app.active_color,
-                        })));
-                    app.commit_data_change(previous)?;
+                    app.add_item(DrawItem::new(DrawElement::Text(Text {
+                        content: "New Text".to_string(),
+                        x: point.0,
+                        y: point.1,
+                        color: app.active_color,
+                    })))?;
                 }
                 DrawTool::Erase => {
                     app.erase_start_data = Some(app.data.clone());
@@ -374,14 +370,16 @@ fn handle_mouse(
                 stroke.points = crate::render::smooth_points(&stroke.points);
                 previous = Some(app.data.clone());
                 app.data
-                    .elements
-                    .push(DrawItem::new(DrawElement::Stroke(stroke)));
+                    .add_item(DrawItem::new(DrawElement::Stroke(stroke)))
+                    .map_err(anyhow::Error::msg)?;
             }
             if let Some(element) = app.preview_element.take() {
                 if previous.is_none() {
                     previous = Some(app.data.clone());
                 }
-                app.data.elements.push(DrawItem::new(element));
+                app.data
+                    .add_item(DrawItem::new(element))
+                    .map_err(anyhow::Error::msg)?;
             }
             if app.active_tool == DrawTool::Erase {
                 previous = app.erase_start_data.take();
@@ -611,11 +609,9 @@ fn erase_item(app: &mut DrawState, id: &crate::state::DrawItemId) -> anyhow::Res
     if app.data.item(id).is_none() {
         return Ok(());
     }
-    let previous = app.data.clone();
-    app.data.elements.retain(|item| item.id != *id);
     app.selection.clear();
     app.hovered = None;
-    app.commit_data_change(previous)?;
+    app.delete_item(id)?;
     Ok(())
 }
 
@@ -631,11 +627,9 @@ fn set_item_color(
     if previous_color == color {
         return Ok(());
     }
-    let previous = app.data.clone();
-    if let Some(item) = app.data.item_mut(id) {
-        set_element_color(&mut item.element, color);
-        app.commit_data_change(previous)?;
-    }
+    let mut item = item.clone();
+    set_element_color(&mut item.element, color);
+    app.update_item(id, item)?;
     Ok(())
 }
 
@@ -710,10 +704,8 @@ fn commit_paste(app: &mut DrawState) -> anyhow::Result<()> {
         return Ok(());
     };
     let id = item.id.clone();
-    let previous = app.data.clone();
-    app.data.elements.push(item);
     app.selection.select_only(id);
-    app.commit_data_change(previous)?;
+    app.add_item(item)?;
     app.notify("Element pasted");
     Ok(())
 }
@@ -788,10 +780,10 @@ fn finish_transform(app: &mut DrawState) -> anyhow::Result<()> {
             preview_degrees,
             ..
         } if original_degrees != preview_degrees => {
-            let previous = app.data.clone();
-            if let Some(item) = app.data.item_mut(&id) {
-                item.transform.rotation_degrees = preview_degrees;
-                app.commit_data_change(previous)?;
+            if let Some(item) = app.data.item(&id) {
+                let mut transform = item.transform;
+                transform.rotation_degrees = preview_degrees;
+                app.transform_item(&id, transform)?;
             }
         }
         DrawInteraction::Scale {
@@ -800,10 +792,10 @@ fn finish_transform(app: &mut DrawState) -> anyhow::Result<()> {
             preview_scale,
             ..
         } if original_scale != preview_scale => {
-            let previous = app.data.clone();
-            if let Some(item) = app.data.item_mut(&id) {
-                item.transform.scale = preview_scale;
-                app.commit_data_change(previous)?;
+            if let Some(item) = app.data.item(&id) {
+                let mut transform = item.transform;
+                transform.scale = preview_scale;
+                app.transform_item(&id, transform)?;
             }
         }
         DrawInteraction::Move { .. } | DrawInteraction::Paste { .. } => {}
@@ -882,11 +874,11 @@ fn finish_cursor_move(app: &mut DrawState) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let previous = app.data.clone();
-    if let Some(item) = app.data.item_mut(&id) {
-        item.transform.translate_x = preview_translation.0;
-        item.transform.translate_y = preview_translation.1;
-        app.commit_data_change(previous)?;
+    if let Some(item) = app.data.item(&id) {
+        let mut transform = item.transform;
+        transform.translate_x = preview_translation.0;
+        transform.translate_y = preview_translation.1;
+        app.transform_item(&id, transform)?;
     }
     Ok(())
 }
@@ -1084,14 +1076,13 @@ pub fn apply_action(
         }
         DrawAction::TextEditorConfirm => {
             if let Some((id, editor)) = app.text_editor.take() {
-                let previous = app.data.clone();
-                if let Some(item) = app.data.item_mut(&id)
+                app.mouse_selection = crate::ui::MouseTextSelection::default();
+                if let Some(mut item) = app.data.item(&id).cloned()
                     && let DrawElement::Text(text) = &mut item.element
                 {
                     text.content = editor.lines()[0].clone();
+                    app.update_item(&id, item)?;
                 }
-                app.mouse_selection = crate::ui::MouseTextSelection::default();
-                app.commit_data_change(previous)?;
             }
         }
     }

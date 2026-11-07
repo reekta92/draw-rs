@@ -45,6 +45,56 @@ fn loads_are_bounded_fallible_and_never_write() {
 }
 
 #[test]
+fn unsupported_documents_are_never_loaded_or_rewritten() {
+    let dir = tempfile::tempdir().unwrap();
+    let item = DrawItem::new(DrawElement::Text(Text {
+        content: "keep".into(),
+        x: 1.0,
+        y: 2.0,
+        color: (1, 2, 3),
+    }));
+    let data = DrawData {
+        elements: vec![item],
+        ..DrawData::default()
+    };
+    let mut extension = serde_json::to_value(data).unwrap();
+    extension["elements"][0]["transform"]["extension"] = serde_json::json!("keep");
+    for (index, content) in [
+        extension.to_string(),
+        r#"{"version":1,"elements":[{"Image":{"path":"keep.png"}}]}"#.into(),
+        r#"{"version":2,"elements":[],"extension":"keep"}"#.into(),
+        r#"{"elements":[],"extension":"keep"}"#.into(),
+        r#"{"version":3,"elements":[],"extension":"keep"}"#.into(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = dir.path().join(format!("unsupported-{index}.draw"));
+        std::fs::write(&path, &content).unwrap();
+        assert!(DrawState::load(&path).is_err());
+        assert!(DrawState::create(&path).is_err());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), content);
+    }
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 5);
+}
+
+#[test]
+fn clean_legacy_save_migrates_once_and_retains_v2_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("legacy.draw");
+    let source =
+        r#"{"version":1,"elements":[{"Text":{"content":"keep","x":1,"y":2,"color":[1,2,3]}}]}"#;
+    std::fs::write(&path, source).unwrap();
+    let state = DrawState::load(&path).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+    let migrated = state.data.clone();
+    state.save().unwrap();
+    assert_eq!(DrawState::load(&path).unwrap().data, migrated);
+    state.save().unwrap();
+    assert_eq!(DrawState::load(&path).unwrap().data, migrated);
+}
+
+#[test]
 fn creation_never_clobbers_and_failed_publication_cleans_temporary_files() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("art.draw");
